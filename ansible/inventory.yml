@@ -1,0 +1,14 @@
+myhosts:
+  hosts:
+    k3s-server:
+      ansible_host: "{{ k3s_server_ansible_host }}"
+      ansible_user: "{{ k3s_server_ansible_user }}"
+      ansible_ssh_private_key_file: "{{ k3s_server_ansible_ssh_private_key_file }}"
+    k3s-agent-1:
+      ansible_host: "{{ k3s_agent_1_ansible_host }}"
+      ansible_user: "{{ k3s_agent_1_ansible_user }}"
+      ansible_ssh_private_key_file: "{{ k3s_agent_1_ansible_ssh_private_key_file }}"
+    k3s-agent-2:
+      ansible_host: "{{ k3s_agent_2_ansible_host }}"
+      ansible_user: "{{ k3s_agent_2_ansible_user }}"
+      ansible_ssh_private_key_file: "{{ k3s_agent_2_ansible_ssh_private_key_file }}"
