@@ -1,54 +1,16 @@
-# Query existing OCI resources
+# Data sources for OCI resources
 
-# Compute
-data "oci_core_instances" "all" {
-  compartment_id = var.compartment_ocid
-}
-
-data "oci_core_boot_volumes" "all" {
-  compartment_id      = var.compartment_ocid
-  availability_domain = data.oci_identity_availability_domains.all.availability_domains[0].name
-}
-
-data "oci_core_volumes" "all" {
-  compartment_id = var.compartment_ocid
-}
-
-# Networking
-data "oci_core_vcns" "all" {
-  compartment_id = var.compartment_ocid
-}
-
-data "oci_core_subnets" "all" {
-  compartment_id = var.compartment_ocid
-}
-
-data "oci_core_internet_gateways" "all" {
-  compartment_id = var.compartment_ocid
-}
-
-data "oci_core_nat_gateways" "all" {
-  compartment_id = var.compartment_ocid
-}
-
-data "oci_core_route_tables" "all" {
-  compartment_id = var.compartment_ocid
-}
-
-data "oci_core_security_lists" "all" {
-  compartment_id = var.compartment_ocid
-}
-
-data "oci_core_network_security_groups" "all" {
-  compartment_id = var.compartment_ocid
-}
-
-data "oci_core_public_ips" "all" {
-  compartment_id = var.compartment_ocid
-  scope          = "REGION"
-}
-
-# Identity
+# Get availability domains
 data "oci_identity_availability_domains" "all" {
   compartment_id = var.tenancy_ocid
+}
+
+# Get latest Ubuntu 24.04 aarch64 image (for ARM instances)
+data "oci_core_images" "ubuntu_24_04" {
+  compartment_id           = var.compartment_ocid
+  operating_system         = "Canonical Ubuntu"
+  operating_system_version = "24.04"
+  shape                    = "VM.Standard.A1.Flex"
+  sort_by                  = "TIMECREATED"
+  sort_order               = "DESC"
 }
