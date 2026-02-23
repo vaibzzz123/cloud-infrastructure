@@ -2,7 +2,7 @@ terraform {
   required_providers {
     oci = {
       source  = "oracle/oci"
-      version = "~> 5.0"
+      version = "~> 7.0"
     }
   }
 }
@@ -87,6 +87,16 @@ resource "oci_core_security_list" "main" {
     tcp_options {
       min = 443
       max = 443
+    }
+  }
+
+  # Kubernetes API server
+  ingress_security_rules {
+    protocol = "6" # TCP
+    source   = "0.0.0.0/0"
+    tcp_options {
+      min = 6443
+      max = 6443
     }
   }
 
