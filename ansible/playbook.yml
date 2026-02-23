@@ -10,5 +10,32 @@
      ansible.builtin.apt:
       upgrade: full
 
+- name: Open required ports on server node
+  hosts: server
+  become: true
+  tasks:
+    - name: Install netfilter-persistent
+      ansible.builtin.apt:
+        name: netfilter-persistent
+        state: present
+
+    - name: Allow k3s API server port
+      ansible.builtin.iptables:
+        chain: INPUT
+        protocol: tcp
+        destination_port: "6443"
+        jump: ACCEPT
+        action: insert
+        rule_num: 1
+      notify: Save iptables rules
+
+  handlers:
+    - name: Save iptables rules
+      ansible.builtin.command: netfilter-persistent save
+
 - name: Setup k3s cluster
   ansible.builtin.import_playbook: k3s.orchestration.site
+
+# To remove k3s cluster if needed
+# - name: Remove k3s cluster
+#   ansible.builtin.import_playbook: k3s.orchestration.reset
