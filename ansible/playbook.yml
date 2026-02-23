@@ -9,3 +9,6 @@
    - name: Upgrade packages
      ansible.builtin.apt:
       upgrade: full
+
+- name: Setup k3s cluster
+  ansible.builtin.import_playbook: k3s.orchestration.site
