@@ -1,0 +1,32 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nginx
+  # namespace: default
+spec:
+  containers:
+  - name: nginx
+    image: nginx:latest
+    ports:
+    - containerPort: 80 # This does NOT expose any ports, just for documentation
+    resources:
+      requests:
+        memory: "64Mi"
+        cpu: "250m" # Millicore notation: 1000m = 1 CPU core, so can use 25% of 1 core
+      limits:
+        memory: "128Mi"
+        cpu: "500m"
+    livenessProbe:
+      httpGet: # Probing method
+        path: /
+        port: 80
+      initialDelaySeconds: 30 # How long to wait before starting to probe
+      periodSeconds: 10 # How often to probe after initial delay
+      timeoutSeconds: 5 # How long to wait for a response from container
+      failureThreshold: 3 # How many consecutive failures before killing container
+    readinessProbe:
+      httpGet:
+        path: /
+        port: 80
+      initialDelaySeconds: 5
+      periodSeconds: 5
