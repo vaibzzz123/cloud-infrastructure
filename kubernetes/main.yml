@@ -8,7 +8,7 @@ spec:
   - name: nginx
     image: nginx:latest
     ports:
-    - containerPort: 80 # This does NOT expose any ports, just for documentation
+    - containerPort: 80 # This does NOT expose any ports, just for documentation    
     resources:
       requests:
         memory: "64Mi"
@@ -30,3 +30,26 @@ spec:
         port: 80
       initialDelaySeconds: 5
       periodSeconds: 5
+    volumeMounts:
+    - name: homepage
+      # Note: mountPath overwrites existing directories/directory content in the container
+      mountPath: /usr/share/nginx/html
+      # Note: subPath is used to mount specific files, so it won't overwrite the entire directory
+      subPath: index.html
+  # ConfigMaps are added as volumes to the Pod first
+  volumes:
+  - name: homepage
+    configMap:
+      name: homepage
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: homepage
+data:
+  index.html: |
+    <html>
+      <body>
+        <h1>Hello World</h1>
+      </body>
+    </html>
