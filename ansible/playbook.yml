@@ -1,5 +1,6 @@
 - name: Update packages on all hosts
   hosts: all
+  tags: update-packages
   become: true
   tasks:
    - name: Update packages
@@ -10,8 +11,10 @@
      ansible.builtin.apt:
       upgrade: full
 
+# Check out https://docs.k3s.io/installation/requirements#networking for additional info
 - name: Configure firewall on all nodes
   hosts: all
+  tags: firewall-all
   become: true
   tasks:
     - name: Install netfilter-persistent
@@ -29,12 +32,23 @@
         rule_num: 1
       notify: Save iptables rules
 
+    - name: Allow flannel VXLAN port
+      ansible.builtin.iptables:
+        chain: INPUT
+        protocol: udp
+        destination_port: "8472"
+        jump: ACCEPT
+        action: insert
+        rule_num: 1
+      notify: Save iptables rules
+
   handlers:
     - name: Save iptables rules
       ansible.builtin.command: netfilter-persistent save
 
 - name: Configure firewall on server node
   hosts: server
+  tags: firewall-server
   become: true
   tasks:
     - name: Allow k3s API server port
