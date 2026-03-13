@@ -1,4 +1,4 @@
-apiVersion: v1
+apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: caddy-deployment
@@ -44,9 +44,9 @@ spec:
         volumeMounts:
         - name: caddy-configmap
           # Note: mountPath overwrites existing directories/directory content in the container
-          mountPath: /usr/share/caddy
+          mountPath: /etc/caddy
           # Note: subPath is used to mount specific files, so it won't overwrite the entire directory
-          subPath: index.html
+          subPath: Caddyfile
 
       # ConfigMaps are added as volumes to the Pod first
       volumes:
