@@ -45,8 +45,10 @@ spec:
         - name: caddy-configmap
           # Note: mountPath overwrites existing directories/directory content in the container
           mountPath: /etc/caddy
-          # Note: subPath is used to mount specific files, so it won't overwrite the entire directory
-          subPath: Caddyfile
+          # Note: subPath is used to mount specific files
+          # so it won't overwrite the entire directory
+          # But not going to use it here due to Caddy docs https://hub.docker.com/_/caddy/
+          # subPath: Caddyfile
 
       # ConfigMaps are added as volumes to the Pod first
       volumes:
@@ -61,7 +63,7 @@ metadata:
 data:
   Caddyfile: |
     :80 {
-        respond 200 "Hello World"
+        respond "Hello World" 200
     }
 ---
 apiVersion: v1
