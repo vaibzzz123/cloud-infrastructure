@@ -11,7 +11,7 @@ data:
     :80 {
         @jellyfin host jellyfin.vabkapoor.com
         handle @jellyfin {
-            respond "Jellyfin!" 200
+            reverse_proxy homeserver.netbird.cloud:8096
         }
 
         handle {

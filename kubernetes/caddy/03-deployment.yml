@@ -25,7 +25,7 @@ spec:
             memory: "64Mi"
             cpu: "250m" # Millicore notation: 1000m = 1 CPU core, so can use 25% of 1 core
           limits:
-            memory: "1G"
+            memory: "1Gi"
             cpu: "500m"
         livenessProbe:
           httpGet: # Probing method
@@ -49,9 +49,33 @@ spec:
           # so it won't overwrite the entire directory
           # But not going to use it here due to Caddy docs https://hub.docker.com/_/caddy/
           # subPath: Caddyfile
+      - name: netbird
+        image: netbirdio/netbird:0.66.4
+        envFrom:
+        - secretRef:
+            name: netbird-secret
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+        securityContext:
+          capabilities:
+            add:
+              - NET_ADMIN
+              - SYS_MODULE
+              - SYS_RESOURCE
+        volumeMounts:
+        - name: netbird-pvc
+          mountPath: /var/lib/netbird
 
       # ConfigMaps are added as volumes to the Pod first
       volumes:
       - name: caddy-configmap
         configMap:
           name: caddy-configmap
+      - name: netbird-pvc
+        persistentVolumeClaim:
+          claimName: netbird-pvc
