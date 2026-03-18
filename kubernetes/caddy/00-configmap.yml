@@ -4,10 +4,17 @@ metadata:
   name: caddy-configmap
 data:
   Caddyfile: |
-    :80 {
-        respond "Hello World" 200
+    {
+        auto_https off
     }
 
-    jellyfin.vabkapoor.com {
-        respond "Jellyfin!"
+    :80 {
+        @jellyfin host jellyfin.vabkapoor.com
+        handle @jellyfin {
+            respond "Jellyfin!" 200
+        }
+
+        handle {
+            respond "Hello World" 200
+        }
     }
