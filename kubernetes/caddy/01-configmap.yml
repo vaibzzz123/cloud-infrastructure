@@ -14,6 +14,11 @@ data:
             reverse_proxy homeserver.netbird.cloud:8096
         }
 
+        @immich host immich.vabkapoor.com
+        handle @immich {
+            reverse_proxy homeserver.netbird.cloud:2283
+        }
+
         handle {
             respond "Hello World" 200
         }

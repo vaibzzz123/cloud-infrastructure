@@ -7,16 +7,28 @@ metadata:
     spec.ingressClassName: traefik
 spec:
   rules:
-     - http:
-        paths:
-        - path: /
-          pathType: Prefix
-          backend:
-            service:
-              name: caddy-service
-              port:
-                number: 80
+  - host: jellyfin.vabkapoor.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: caddy-service
+            port:
+              number: 80
+  - host: immich.vabkapoor.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: caddy-service
+            port:
+              number: 80
   tls:
   - hosts:
     - jellyfin.vabkapoor.com
+    - immich.vabkapoor.com
     secretName: vabkapoor-com-tls
