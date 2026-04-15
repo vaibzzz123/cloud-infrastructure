@@ -5,8 +5,8 @@ metadata:
   namespace: caddy
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt-production
-    spec.ingressClassName: traefik
 spec:
+  ingressClassName: traefik
   rules:
   - host: jellyfin.vabkapoor.com
     http:
