@@ -95,7 +95,7 @@ Run the lightest relevant checks you can after changes:
 ## Current Repo Notes
 
 - `ansible/requirements.yml` tracks `k3s-ansible` from `main`, so behavior can drift over time.
-- `kubernetes/caddy/05-ingress.yml` should prefer `spec.ingressClassName` for modern Ingress resources.
+- `kubernetes/caddy/06-ingress.yml` should prefer `spec.ingressClassName` for modern Ingress resources.
 - `terraform/main.tf` currently exposes SSH, HTTP, HTTPS, and the Kubernetes API publicly; treat security changes here carefully.
 - `terraform/outputs.tf` is the main handoff point from provisioning to host access.
 
