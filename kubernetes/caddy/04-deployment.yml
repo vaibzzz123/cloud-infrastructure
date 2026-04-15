@@ -2,9 +2,9 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: caddy-deployment
+  namespace: caddy
   labels:
     app: caddy
-  # namespace: default
 spec:
   replicas: 1
   strategy:
