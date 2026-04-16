@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: caddy-netbird-copy-dst
+  namespace: caddy
+  labels:
+    app.kubernetes.io/name: caddy-netbird-copy-dst
+    app.kubernetes.io/part-of: caddy-namespace-migration
+spec:
+  restartPolicy: Never
+  containers:
+  - name: helper
+    image: busybox:1.36
+    command:
+    - sh
+    - -c
+    - sleep 3600
+    volumeMounts:
+    - name: netbird-data
+      mountPath: /data
+  volumes:
+  - name: netbird-data
+    persistentVolumeClaim:
+      claimName: netbird-pvc
