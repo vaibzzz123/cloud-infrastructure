@@ -20,17 +20,11 @@ output "k3s_agent_private_ips" {
   value       = [for agent in oci_core_instance.k3s_agent : agent.private_ip]
 }
 
-# SSH Commands
-locals {
-  # Derive private key path from public key path (strip .pub extension)
-  ssh_private_key_path = trimsuffix(var.ssh_public_key_path, ".pub")
-}
-
 output "ssh_commands" {
   description = "SSH commands to connect to each node"
   value = concat(
-    ["ssh -i ${local.ssh_private_key_path} ubuntu@${oci_core_instance.k3s_server.public_ip}  # k3s-server"],
-    [for i, agent in oci_core_instance.k3s_agent : "ssh -i ${local.ssh_private_key_path} ubuntu@${agent.public_ip}  # k3s-agent-${i + 1}"]
+    ["ssh -i ${trimsuffix(var.ssh_public_key_path, ".pub")} ubuntu@${oci_core_instance.k3s_server.public_ip}  # k3s-server"],
+    [for i, agent in oci_core_instance.k3s_agent : "ssh -i ${trimsuffix(var.ssh_public_key_path, ".pub")} ubuntu@${agent.public_ip}  # k3s-agent-${i + 1}"]
   )
 }
 
