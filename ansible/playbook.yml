@@ -3,13 +3,11 @@
   tags: update-packages
   become: true
   tasks:
-   - name: Update packages
-     ansible.builtin.apt:
-      update_cache: yes
-
-   - name: Upgrade packages
-     ansible.builtin.apt:
-      upgrade: yes
+    - name: Update and upgrade packages
+      ansible.builtin.apt:
+        update_cache: yes
+        upgrade: dist
+        lock_timeout: 600
 
 # Check out https://docs.k3s.io/installation/requirements#networking for additional info
 - name: Configure firewall on all nodes
