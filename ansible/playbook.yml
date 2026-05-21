@@ -9,6 +9,28 @@
         upgrade: dist
         lock_timeout: 600
 
+- name: Install storage prerequisites on all hosts
+  hosts: all
+  tags: storage-prereqs
+  become: true
+  tasks:
+    - name: Install Longhorn host dependencies
+      ansible.builtin.apt:
+        name:
+          - open-iscsi # Essential for Longhorn storage
+          - nfs-common # For RWX/shared volumes
+          - cryptsetup # For encrypted volumes
+          - util-linux # For various utilities, usually installed by default
+        state: present
+        update_cache: yes
+        lock_timeout: 600
+
+    - name: Enable and start iSCSI daemon
+      ansible.builtin.systemd_service:
+        name: iscsid
+        enabled: true
+        state: started
+
 # Check out https://docs.k3s.io/installation/requirements#networking for additional info
 - name: Configure firewall on all nodes
   hosts: all
