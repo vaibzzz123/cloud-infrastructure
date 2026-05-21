@@ -39,3 +39,6 @@ terraform.rc
 .vault_password
 
 .env
+
+# Repo-local automation output
+.local/
