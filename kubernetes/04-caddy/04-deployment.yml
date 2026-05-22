@@ -52,7 +52,7 @@ spec:
           # But not going to use it here due to Caddy docs https://hub.docker.com/_/caddy/
           # subPath: Caddyfile
       - name: netbird
-        image: netbirdio/netbird:0.66.4
+        image: netbirdio/netbird:0.71.4
         envFrom:
         - secretRef:
             name: netbird-secret
