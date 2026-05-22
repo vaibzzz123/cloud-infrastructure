@@ -89,6 +89,17 @@
   tags: k3s
   ansible.builtin.import_playbook: k3s.orchestration.site
 
+- name: Reboot all hosts after package upgrades and k3s cluster setup
+  hosts: all
+  tags: reboot
+  become: true
+  tasks:
+    - name: Reboot and wait for hosts to return
+      ansible.builtin.reboot:
+        msg: "Rebooting after package upgrades and k3s cluster setup"
+        reboot_timeout: 600
+        post_reboot_delay: 10
+
 # To remove k3s cluster if needed
 # - name: Remove k3s cluster
 #   ansible.builtin.import_playbook: k3s.orchestration.reset
