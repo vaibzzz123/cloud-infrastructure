@@ -89,6 +89,75 @@
   tags: k3s
   ansible.builtin.import_playbook: k3s.orchestration.site
 
+- name: Copy private kubeconfig to agent nodes
+  hosts: agent
+  tags: kubeconfig-agents
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Read kubeconfig from server node
+      ansible.builtin.slurp:
+        src: /etc/rancher/k3s/k3s.yaml
+      delegate_to: "{{ groups['server'][0] }}"
+      run_once: true
+      register: k3s_server_kubeconfig
+      no_log: true
+
+    - name: Ensure k3s config directory exists on agent nodes
+      ansible.builtin.file:
+        path: /etc/rancher/k3s
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Copy kubeconfig to agent nodes with private API endpoint
+      ansible.builtin.copy:
+        dest: /etc/rancher/k3s/k3s.yaml
+        owner: "{{ ansible_user }}"
+        group: root
+        mode: "0600"
+        content: >-
+          {{
+            k3s_server_kubeconfig.content
+            | b64decode
+            | regex_replace(
+                'server: https://[^:]+:[0-9]+',
+                'server: https://' ~ api_endpoint ~ ':' ~ (api_port | default(6443) | string)
+              )
+          }}
+      no_log: true
+
+# Only runs on local machine with delegate_to: 127.0.0.1, so kube config works
+- name: Point local kubeconfig at public k3s API endpoint
+  hosts: server
+  tags: kubeconfig-local
+  gather_facts: false
+  tasks:
+    - name: Update local kubeconfig cluster endpoint
+      ansible.builtin.command:
+        cmd: >
+          kubectl config set-cluster {{ cluster_context | default('k3s-ansible') }}
+          --server=https://{{ k3s_server_ansible_host }}:{{ api_port | default(6443) }}
+      delegate_to: 127.0.0.1
+      become: false
+      changed_when: true
+
+- name: Configure kubectl shell aliases on all nodes
+  hosts: all
+  tags: kubectl-alias
+  become: true
+  tasks:
+    - name: Add k alias for kubectl
+      ansible.builtin.lineinfile:
+        path: "~{{ ansible_user }}/.bashrc"
+        regexp: '^alias k='
+        line: "alias k=kubectl # Added by cloud-infrastructure playbook"
+        create: true
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0644"
+
 - name: Reboot all hosts after package upgrades and k3s cluster setup
   hosts: all
   tags: reboot
@@ -100,6 +169,12 @@
         reboot_timeout: 600
         post_reboot_delay: 10
 
+
+
 # To remove k3s cluster if needed
-# - name: Remove k3s cluster
-#   ansible.builtin.import_playbook: k3s.orchestration.reset
+# Will only run if explicitly called with --tags remove-k3s
+- name: Remove k3s cluster
+  tags:
+    - never
+    - remove-k3s
+  ansible.builtin.import_playbook: k3s.orchestration.reset
