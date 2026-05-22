@@ -1,0 +1,2 @@
+k3s_token: "generated_token_here (check comments of inventory.yml for details)"
+k3s_server_private_ip: "private ip of server as seen by agent nodes in VCN"
