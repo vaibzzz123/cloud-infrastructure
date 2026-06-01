@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 vault_files=(
-  group_vars/all.yml
+  group_vars/all/main.yml
   group_vars/server.yml
   group_vars/agent.yml
 )

@@ -41,7 +41,7 @@ terraform.rc
 .env
 
 # Local Ansible secrets
-ansible/group_vars/secrets.yml
+ansible/group_vars/all/secrets.yml
 
 # Repo-local automation output
 .local/

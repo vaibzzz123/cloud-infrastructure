@@ -7,9 +7,11 @@ group_vars_dir="$ansible_dir/group_vars"
 input_file="${TERRAFORM_OUTPUT_FILE:-$repo_root/.local/terraform-outputs.env}"
 vault_password_file="$group_vars_dir/.vault_password"
 ansible_user="${ANSIBLE_USER:-ubuntu}"
-all_file="$group_vars_dir/all.yml"
+all_dir="$group_vars_dir/all"
+all_file="$all_dir/main.yml"
 server_file="$group_vars_dir/server.yml"
 agent_file="$group_vars_dir/agent.yml"
+secrets_file="$all_dir/secrets.yml"
 
 require() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -70,6 +72,25 @@ encrypt_group_vars() {
   (cd "$ansible_dir" && ./encrypt.sh)
 }
 
+write_k3s_token_if_needed() {
+  local k3s_token
+
+  if [[ -f "$secrets_file" ]]; then
+    chmod 600 "$secrets_file"
+
+    if ! confirm "$secrets_file already exists. Regenerate k3s_token?"; then
+      printf 'Keeping existing %s\n' "$secrets_file"
+      return 0
+    fi
+  fi
+
+  k3s_token="$(openssl rand -base64 64 | tr -d '\n')"
+  {
+    printf 'k3s_token: "%s"\n' "$k3s_token"
+  } >"$secrets_file"
+  chmod 600 "$secrets_file"
+}
+
 require ansible-vault
 require ansible-playbook
 require openssl
@@ -90,18 +111,19 @@ if [[ -z "${K3S_SERVER_PUBLIC_IP:-}" || -z "${K3S_SERVER_PRIVATE_IP:-}" || -z "$
   exit 1
 fi
 
-if ! confirm "Overwrite all.yml, server.yml, and agent.yml with Terraform values?"; then
+if ! confirm "Overwrite group_vars/all/main.yml, server.yml, and agent.yml with Terraform values?"; then
   printf 'Aborted.\n'
   exit 1
 fi
 
+mkdir -p "$all_dir"
 decrypt_group_vars_if_needed
-k3s_token="$(openssl rand -base64 64 | tr -d '\n')"
 
 {
-  printf 'k3s_token: "%s"\n' "$k3s_token"
   printf 'k3s_server_private_ip: "%s"\n' "$K3S_SERVER_PRIVATE_IP"
 } >"$all_file"
+
+write_k3s_token_if_needed
 
 {
   printf 'k3s_server_ansible_host: "%s"\n' "$K3S_SERVER_PUBLIC_IP"
@@ -134,8 +156,9 @@ printf '\nUpdated:\n'
 printf '  %s\n' "$all_file"
 printf '  %s\n' "$server_file"
 printf '  %s\n' "$agent_file"
+printf '  %s (gitignored)\n' "$secrets_file"
 
-if ! confirm "Have you reviewed those files and want to encrypt them now?"; then
+if ! confirm "Have you reviewed those files and want to encrypt the tracked group vars now?"; then
   printf 'Leaving group_vars decrypted for review. Run ansible/encrypt.sh when ready.\n'
   exit 0
 fi
