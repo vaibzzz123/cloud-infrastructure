@@ -31,6 +31,82 @@
         enabled: true
         state: started
 
+- name: Install and connect NetBird on all hosts
+  hosts: all
+  tags: netbird
+  become: true
+  tasks:
+    - name: Ensure NetBird setup key is configured
+      ansible.builtin.assert:
+        that:
+          - netbird_k3s_nodes_setup_key is defined
+          - netbird_k3s_nodes_setup_key | default('') | length > 0
+        fail_msg: "Set netbird_k3s_nodes_setup_key in ansible/group_vars/all/secrets.yml before running the NetBird play."
+        quiet: true
+
+    - name: Install NetBird apt repository prerequisites
+      ansible.builtin.apt:
+        name:
+          - ca-certificates
+          - gnupg
+          - python3-apt
+        state: present
+        update_cache: yes
+        lock_timeout: 600
+
+    - name: Add NetBird apt signing key
+      ansible.builtin.get_url:
+        url: https://pkgs.netbird.io/debian/public.key
+        dest: /usr/share/keyrings/netbird.asc
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Add NetBird apt repository
+      ansible.builtin.apt_repository:
+        repo: "deb [signed-by=/usr/share/keyrings/netbird.asc] https://pkgs.netbird.io/debian stable main"
+        filename: netbird
+        state: present
+        update_cache: true
+
+    - name: Install NetBird
+      ansible.builtin.apt:
+        name: netbird
+        state: present
+        lock_timeout: 600
+
+    - name: Check whether NetBird service is installed
+      ansible.builtin.command:
+        cmd: systemctl cat netbird.service
+      register: netbird_service_unit
+      changed_when: false
+      failed_when: false
+
+    - name: Install NetBird service
+      ansible.builtin.command:
+        cmd: netbird service install
+      when: netbird_service_unit.rc != 0
+
+    - name: Enable and start NetBird service
+      ansible.builtin.systemd_service:
+        name: netbird
+        enabled: true
+        state: started
+        daemon_reload: true
+
+    - name: Check whether NetBird is already enrolled
+      ansible.builtin.stat:
+        path: /var/lib/netbird/config.json
+      register: netbird_config
+
+    - name: Connect NetBird with inventory hostname
+      ansible.builtin.command:
+      # inventory_hostname is an ansible special variable that contains the name of the host as defined in the inventory.
+        argv: "{{ ['netbird', 'up', '--setup-key', netbird_k3s_nodes_setup_key, '--hostname', inventory_hostname] }}"
+      # from above step
+      when: not netbird_config.stat.exists
+      no_log: true
+
 # Check out https://docs.k3s.io/installation/requirements#networking for additional info
 - name: Configure firewall on all nodes
   hosts: all

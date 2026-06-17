@@ -29,6 +29,36 @@ confirm() {
   [[ "$answer" == "y" || "$answer" == "Y" || "$answer" == "yes" || "$answer" == "YES" ]]
 }
 
+secret_var_is_set() {
+  local var_name="$1"
+
+  [[ -f "$secrets_file" ]] && grep -Eq "^${var_name}: *\"?[^\"]+\"? *$" "$secrets_file"
+}
+
+read_existing_secret_var() {
+  local var_name="$1"
+
+  awk -F': *' -v key="$var_name" '$1 == key { value = $2; gsub(/^"|"$/, "", value); print value; exit }' "$secrets_file"
+}
+
+read_required_secret() {
+  local prompt="$1"
+  local value
+
+  while true; do
+    printf '%s: ' "$prompt" >&2
+    read -rs value
+    printf '\n' >&2
+
+    if [[ -n "$value" ]]; then
+      printf '%s' "$value"
+      return 0
+    fi
+
+    printf 'Value cannot be empty.\n' >&2
+  done
+}
+
 is_encrypted() {
   [[ -f "$1" ]] && head -n 1 "$1" | grep -q '^\$ANSIBLE_VAULT;'
 }
@@ -72,21 +102,36 @@ encrypt_group_vars() {
   (cd "$ansible_dir" && ./encrypt.sh)
 }
 
-write_k3s_token_if_needed() {
-  local k3s_token
+write_cluster_secrets_if_needed() {
+  local k3s_token netbird_k3s_nodes_setup_key
 
   if [[ -f "$secrets_file" ]]; then
     chmod 600 "$secrets_file"
 
     if ! confirm "$secrets_file already exists. Regenerate k3s_token?"; then
-      printf 'Keeping existing %s\n' "$secrets_file"
+      if secret_var_is_set netbird_k3s_nodes_setup_key; then
+        printf 'Keeping existing %s\n' "$secrets_file"
+      else
+        netbird_k3s_nodes_setup_key="$(read_required_secret 'Enter NetBird k3s nodes setup key')"
+        printf 'netbird_k3s_nodes_setup_key: "%s"\n' "$netbird_k3s_nodes_setup_key" >>"$secrets_file"
+        printf 'Added netbird_k3s_nodes_setup_key to %s\n' "$secrets_file"
+      fi
       return 0
     fi
+
+    if secret_var_is_set netbird_k3s_nodes_setup_key; then
+      netbird_k3s_nodes_setup_key="$(read_existing_secret_var netbird_k3s_nodes_setup_key)"
+    else
+      netbird_k3s_nodes_setup_key="$(read_required_secret 'Enter NetBird k3s nodes setup key')"
+    fi
+  else
+    netbird_k3s_nodes_setup_key="$(read_required_secret 'Enter NetBird k3s nodes setup key')"
   fi
 
   k3s_token="$(openssl rand -base64 64 | tr -d '\n')"
   {
     printf 'k3s_token: "%s"\n' "$k3s_token"
+    printf 'netbird_k3s_nodes_setup_key: "%s"\n' "$netbird_k3s_nodes_setup_key"
   } >"$secrets_file"
   chmod 600 "$secrets_file"
 }
@@ -123,7 +168,7 @@ decrypt_group_vars_if_needed
   printf 'k3s_server_private_ip: "%s"\n' "$K3S_SERVER_PRIVATE_IP"
 } >"$all_file"
 
-write_k3s_token_if_needed
+write_cluster_secrets_if_needed
 
 {
   printf 'k3s_server_ansible_host: "%s"\n' "$K3S_SERVER_PUBLIC_IP"
