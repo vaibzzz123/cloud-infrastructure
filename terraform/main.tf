@@ -90,13 +90,19 @@ resource "oci_core_security_list" "main" {
     }
   }
 
-  # Kubernetes API server
-  ingress_security_rules {
-    protocol = "6" # TCP
-    source   = "0.0.0.0/0"
-    tcp_options {
-      min = 6443
-      max = 6443
+  # Kubernetes API server, only from trusted CIDRs
+  dynamic "ingress_security_rules" {
+    for_each = var.trusted_cidrs
+    iterator = cidr
+
+    content {
+      protocol = "6"
+      source   = cidr.value
+
+      tcp_options {
+        min = 6443
+        max = 6443
+      }
     }
   }
 

@@ -49,6 +49,12 @@ variable "subnet_cidr" {
   default     = "10.0.1.0/24"
 }
 
+variable "trusted_cidrs" {
+  description = "CIDRs allowed to access sensitive ports (6443 k8s API)"
+  type        = set(string)
+  default     = []
+}
+
 # Instance Configuration
 variable "k3s_server_ocpus" {
   description = "Number of OCPUs for k3s server node"
