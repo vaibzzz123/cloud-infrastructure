@@ -50,9 +50,19 @@ variable "subnet_cidr" {
 }
 
 variable "trusted_cidrs" {
-  description = "CIDRs allowed to access sensitive ports (6443 k8s API)"
+  description = "Public CIDRs allowed to access the k3s API"
   type        = set(string)
   default     = []
+
+  validation {
+    condition     = length(var.trusted_cidrs) > 0
+    error_message = "Set at least one trusted CIDR so public k3s API access is restricted but available."
+  }
+
+  validation {
+    condition     = alltrue([for cidr in var.trusted_cidrs : can(cidrhost(cidr, 0))])
+    error_message = "Each trusted CIDR must be a valid CIDR block, for example 123.4.567.89/32."
+  }
 }
 
 # Instance Configuration

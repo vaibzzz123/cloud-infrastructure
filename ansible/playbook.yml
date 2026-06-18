@@ -1,5 +1,6 @@
 - name: Update packages on all hosts
   hosts: all
+  gather_facts: false
   tags: update-packages
   become: true
   tasks:
@@ -11,6 +12,7 @@
 
 - name: Install storage prerequisites on all hosts
   hosts: all
+  gather_facts: false
   tags: storage-prereqs
   become: true
   tasks:
@@ -33,6 +35,7 @@
 
 - name: Install and connect NetBird on all hosts
   hosts: all
+  gather_facts: false
   tags: netbird
   become: true
   tasks:
@@ -110,6 +113,7 @@
 # Check out https://docs.k3s.io/installation/requirements#networking for additional info
 - name: Configure firewall on all nodes
   hosts: all
+  gather_facts: false
   tags: firewall-all
   become: true
   tasks:
@@ -144,6 +148,7 @@
 
 - name: Configure firewall on server node
   hosts: server
+  gather_facts: false
   tags: firewall-server
   become: true
   tasks:
@@ -221,6 +226,7 @@
 
 - name: Configure kubectl shell aliases on all nodes
   hosts: all
+  gather_facts: false
   tags: kubectl-alias
   become: true
   tasks:
@@ -236,6 +242,7 @@
 
 - name: Reboot all hosts after package upgrades and k3s cluster setup
   hosts: all
+  gather_facts: false
   tags: reboot
   become: true
   tasks:

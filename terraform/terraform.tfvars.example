@@ -9,3 +9,10 @@ region           = "us-ashburn-1"
 compartment_ocid = "ocid1.compartment.oc1..aaaaaaa..."
 
 ssh_public_key_path = "<path to ssh public key file on your system to ssh into all nodes>"
+
+# Public IP ranges allowed to reach administrative ports:
+# - TCP 6443 for the k3s API
+# Use /32 for a single public IP.
+trusted_cidrs = [
+  "123.4.567.89/32",
+]

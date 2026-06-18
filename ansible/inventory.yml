@@ -31,6 +31,7 @@ k3s_cluster:
     token: "{{ k3s_token }}"
     # Overwrote default api endpoint as private ip within the VCN is required for it to not hang on final k3s install step
     api_endpoint: "{{ k3s_server_private_ip }}"
+    k3s_server_netbird_hostname: "k3s-server.netbird.cloud"
 
 
     # Optional vars
@@ -52,6 +53,7 @@ k3s_cluster:
     server_config_yaml:  |
       tls-san:
         - "{{ k3s_server_ansible_host }}"
+        - "{{ k3s_server_netbird_hostname }}"
     #   This is now an inner yaml file. Maintain the indentation.
     #   YAML here will be placed as the content of /etc/rancher/k3s/config.yaml
     #   See https://docs.k3s.io/installation/configuration#configuration-file
