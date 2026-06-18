@@ -19,7 +19,7 @@ spec:
     spec: # Pod specification
       containers:
       - name: caddy
-        image: caddy:2.11.1
+        image: caddy:2.11.4
         ports:
         - containerPort: 80 # This does NOT expose any ports, just for documentation
         resources:
@@ -52,7 +52,10 @@ spec:
           # But not going to use it here due to Caddy docs https://hub.docker.com/_/caddy/
           # subPath: Caddyfile
       - name: netbird
-        image: netbirdio/netbird:0.71.4
+        image: netbirdio/netbird:0.72.4
+        env:
+        - name: NB_HOSTNAME
+          value: k3s-caddy
         envFrom:
         - secretRef:
             name: netbird-secret
