@@ -1,0 +1,43 @@
+- name: Harden SSH on all nodes
+  hosts: all
+  gather_facts: false
+  become: true
+  tags:
+    - host-hardening
+    - ssh-hardening
+  tasks:
+    - name: Ensure sshd config drop-in directory exists
+      ansible.builtin.file:
+        path: /etc/ssh/sshd_config.d
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Configure SSH hardening
+      ansible.builtin.copy:
+        dest: /etc/ssh/sshd_config.d/50-cloud-infrastructure-hardening.conf
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          PasswordAuthentication no
+          KbdInteractiveAuthentication no
+          PermitRootLogin no
+          PubkeyAuthentication yes
+          MaxAuthTries 3
+          LoginGraceTime 30
+      notify:
+        - Validate ssh config
+        - Reload ssh
+
+  handlers:
+    - name: Validate ssh config
+      ansible.builtin.command:
+        cmd: sshd -t
+      changed_when: false
+
+    - name: Reload ssh
+      ansible.builtin.systemd_service:
+        name: ssh
+        state: reloaded

@@ -110,6 +110,12 @@
       when: not netbird_config.stat.exists
       no_log: true
 
+- name: Apply host hardening
+  tags:
+    - host-hardening
+    - ssh-hardening
+  ansible.builtin.import_playbook: playbooks/02-host-hardening.yml
+
 # Check out https://docs.k3s.io/installation/requirements#networking for additional info
 - name: Configure firewall on all nodes
   hosts: all
