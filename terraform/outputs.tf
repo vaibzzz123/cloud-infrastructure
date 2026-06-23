@@ -38,3 +38,8 @@ output "subnet_id" {
   description = "OCID of the public subnet"
   value       = oci_core_subnet.public.id
 }
+
+output "trusted_cidrs" {
+  description = "Trusted CIDRs for k3s API access"
+  value       = var.trusted_cidrs
+}

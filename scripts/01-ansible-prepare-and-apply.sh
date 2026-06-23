@@ -3,6 +3,7 @@ set -Eeuo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ansible_dir="$repo_root/ansible"
+terraform_dir="$repo_root/terraform"
 group_vars_dir="$ansible_dir/group_vars"
 input_file="${TERRAFORM_OUTPUT_FILE:-$repo_root/.local/terraform-outputs.env}"
 vault_password_file="$group_vars_dir/.vault_password"
@@ -12,6 +13,7 @@ all_file="$all_dir/main.yml"
 server_file="$group_vars_dir/server.yml"
 agent_file="$group_vars_dir/agent.yml"
 secrets_file="$all_dir/secrets.yml"
+trusted_cidrs=()
 
 require() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -39,6 +41,14 @@ read_existing_secret_var() {
   local var_name="$1"
 
   awk -F': *' -v key="$var_name" '$1 == key { value = $2; gsub(/^"|"$/, "", value); print value; exit }' "$secrets_file"
+}
+
+trim() {
+  local value="$1"
+
+  value="${value#"${value%%[![:space:]]*}"}"
+  value="${value%"${value##*[![:space:]]}"}"
+  printf '%s' "$value"
 }
 
 read_required_secret() {
@@ -102,8 +112,132 @@ encrypt_group_vars() {
   (cd "$ansible_dir" && ./encrypt.sh)
 }
 
+read_trusted_cidrs_from_terraform() {
+  if ! command -v terraform >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1; then
+    return 1
+  fi
+
+  terraform -chdir="$terraform_dir" output -json trusted_cidrs 2>/dev/null \
+    | jq -er '.[]'
+}
+
+parse_comma_separated_cidrs() {
+  local input="$1"
+  local cidr
+  local parts=()
+
+  IFS=',' read -r -a parts <<<"$input"
+  for cidr in "${parts[@]}"; do
+    cidr="$(trim "$cidr")"
+    if [[ -n "$cidr" ]]; then
+      printf '%s\n' "$cidr"
+    fi
+  done
+}
+
+cidrs_look_valid() {
+  local cidr
+
+  if (($# == 0)); then
+    return 1
+  fi
+
+  for cidr in "$@"; do
+    if [[ ! "$cidr" =~ ^[0-9A-Fa-f:.]+/[0-9]{1,3}$ ]]; then
+      return 1
+    fi
+  done
+}
+
+prompt_for_trusted_cidrs() {
+  local input
+  local parsed_cidrs=()
+
+  while true; do
+    printf 'Enter k3s API trusted CIDRs as a comma-separated list: '
+    read -r input
+    mapfile -t parsed_cidrs < <(parse_comma_separated_cidrs "$input")
+
+    if cidrs_look_valid "${parsed_cidrs[@]}"; then
+      trusted_cidrs=("${parsed_cidrs[@]}")
+      return 0
+    fi
+
+    printf 'Enter at least one CIDR, for example: 203.0.113.10/32, 198.51.100.0/24\n' >&2
+  done
+}
+
+select_trusted_cidrs() {
+  local terraform_cidrs
+  local parsed_cidrs=()
+
+  terraform_cidrs="$(read_trusted_cidrs_from_terraform || true)"
+  if [[ -n "$terraform_cidrs" ]]; then
+    mapfile -t parsed_cidrs <<<"$terraform_cidrs"
+
+    printf '\nTerraform trusted_cidrs output:\n'
+    printf '  - %s\n' "${parsed_cidrs[@]}"
+
+    if confirm "Use these CIDRs for k3s_api_trusted_cidrs in $secrets_file?"; then
+      trusted_cidrs=("${parsed_cidrs[@]}")
+      return 0
+    fi
+  else
+    printf '\nCould not read Terraform trusted_cidrs output. Falling back to manual entry.\n' >&2
+  fi
+
+  prompt_for_trusted_cidrs
+}
+
+remove_secret_key_block() {
+  local key="$1"
+  local tmp_file
+
+  if [[ ! -f "$secrets_file" ]]; then
+    return 0
+  fi
+
+  tmp_file="$(mktemp)"
+  awk -v key="$key" '
+    $0 ~ "^" key ":" {
+      skipping = 1
+      next
+    }
+    skipping && $0 ~ /^[^[:space:]#][^:]*:/ {
+      skipping = 0
+    }
+    !skipping {
+      print
+    }
+  ' "$secrets_file" >"$tmp_file"
+  mv "$tmp_file" "$secrets_file"
+}
+
+append_trusted_cidrs_to_secrets() {
+  local cidr
+
+  remove_secret_key_block k3s_api_trusted_cidrs
+
+  if [[ -s "$secrets_file" ]]; then
+    printf '\n' >>"$secrets_file"
+  fi
+
+  printf 'k3s_api_trusted_cidrs:\n' >>"$secrets_file"
+  for cidr in "${trusted_cidrs[@]}"; do
+    printf '  - "%s"\n' "$cidr" >>"$secrets_file"
+  done
+  chmod 600 "$secrets_file"
+}
+
 write_cluster_secrets_if_needed() {
   local k3s_token netbird_k3s_nodes_setup_key
+
+  if is_encrypted "$secrets_file"; then
+    printf '%s is encrypted. Decrypt it before updating cluster secrets.\n' "$secrets_file" >&2
+    exit 1
+  fi
+
+  select_trusted_cidrs
 
   if [[ -f "$secrets_file" ]]; then
     chmod 600 "$secrets_file"
@@ -116,6 +250,8 @@ write_cluster_secrets_if_needed() {
         printf 'netbird_k3s_nodes_setup_key: "%s"\n' "$netbird_k3s_nodes_setup_key" >>"$secrets_file"
         printf 'Added netbird_k3s_nodes_setup_key to %s\n' "$secrets_file"
       fi
+      append_trusted_cidrs_to_secrets
+      printf 'Updated k3s_api_trusted_cidrs in %s\n' "$secrets_file"
       return 0
     fi
 
@@ -134,6 +270,7 @@ write_cluster_secrets_if_needed() {
     printf 'netbird_k3s_nodes_setup_key: "%s"\n' "$netbird_k3s_nodes_setup_key"
   } >"$secrets_file"
   chmod 600 "$secrets_file"
+  append_trusted_cidrs_to_secrets
 }
 
 require ansible-vault
@@ -156,7 +293,7 @@ if [[ -z "${K3S_SERVER_PUBLIC_IP:-}" || -z "${K3S_SERVER_PRIVATE_IP:-}" || -z "$
   exit 1
 fi
 
-if ! confirm "Overwrite group_vars/all/main.yml, server.yml, and agent.yml with Terraform values?"; then
+if ! confirm "Overwrite group_vars/all/main.yml, server.yml, agent.yml, and secrets.yml with Terraform values?"; then
   printf 'Aborted.\n'
   exit 1
 fi
