@@ -20,6 +20,11 @@ data:
             reverse_proxy homeserver.netbird.cloud:2283
         }
 
+        @seanime host seanime.vabkapoor.com
+        handle @seanime {
+            reverse_proxy homeserver.netbird.cloud:3211
+        }
+
         handle {
             respond "Hello World" 200
         }
