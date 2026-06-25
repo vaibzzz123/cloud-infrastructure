@@ -1,0 +1,4 @@
+k3s_vcn_cidr: "10.0.0.0/16"
+k3s_pod_cidr: "10.42.0.0/16"
+k3s_service_cidr: "10.43.0.0/16"
+k3s_server_netbird_hostname: "k3s-server.netbird.cloud"

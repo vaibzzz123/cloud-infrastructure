@@ -122,30 +122,52 @@
   gather_facts: false
   tags: firewall-all
   become: true
+  vars:
+    k3s_kubelet_allowed_cidrs:
+      - "{{ k3s_vcn_cidr }}"
+      - "{{ k3s_pod_cidr }}"
+      - "{{ k3s_service_cidr }}"
   tasks:
+    - name: Ensure firewall CIDRs are configured
+      ansible.builtin.assert:
+        that:
+          - k3s_vcn_cidr is defined
+          - k3s_vcn_cidr | length > 0
+          - k3s_pod_cidr is defined
+          - k3s_pod_cidr | length > 0
+          - k3s_service_cidr is defined
+          - k3s_service_cidr | length > 0
+        fail_msg: "Set k3s_vcn_cidr, k3s_pod_cidr, and k3s_service_cidr before running firewall tasks."
+        quiet: true
+
     - name: Install netfilter-persistent
       ansible.builtin.apt:
         name: netfilter-persistent
         state: present
 
-    - name: Allow kubelet metrics port
+    - name: Allow kubelet metrics port from cluster CIDRs
       ansible.builtin.iptables:
         chain: INPUT
         protocol: tcp
+        source: "{{ item }}"
         destination_port: "10250"
         jump: ACCEPT
         action: insert
         rule_num: 1
+        comment: "Allow k3s kubelet metrics from {{ item }}"
+      loop: "{{ k3s_kubelet_allowed_cidrs }}"
       notify: Save iptables rules
 
-    - name: Allow flannel VXLAN port
+    - name: Allow flannel VXLAN port from VCN
       ansible.builtin.iptables:
         chain: INPUT
         protocol: udp
+        source: "{{ k3s_vcn_cidr }}"
         destination_port: "8472"
         jump: ACCEPT
         action: insert
         rule_num: 1
+        comment: "Allow k3s flannel VXLAN from VCN"
       notify: Save iptables rules
 
   handlers:
@@ -157,15 +179,50 @@
   gather_facts: false
   tags: firewall-server
   become: true
+  vars:
+    k3s_api_internal_cidrs:
+      - "{{ k3s_vcn_cidr }}"
+      - "{{ k3s_pod_cidr }}"
+      - "{{ k3s_service_cidr }}"
   tasks:
-    - name: Allow k3s API server port
+    - name: Ensure API firewall CIDRs are configured
+      ansible.builtin.assert:
+        that:
+          - k3s_vcn_cidr is defined
+          - k3s_vcn_cidr | length > 0
+          - k3s_pod_cidr is defined
+          - k3s_pod_cidr | length > 0
+          - k3s_service_cidr is defined
+          - k3s_service_cidr | length > 0
+          - k3s_api_trusted_cidrs is defined
+          - k3s_api_trusted_cidrs | length > 0
+        fail_msg: "Set k3s_vcn_cidr, k3s_pod_cidr, k3s_service_cidr, and k3s_api_trusted_cidrs before running server firewall tasks."
+        quiet: true
+
+    - name: Allow k3s API server port from internal cluster CIDRs
       ansible.builtin.iptables:
         chain: INPUT
         protocol: tcp
+        source: "{{ item }}"
         destination_port: "6443"
         jump: ACCEPT
         action: insert
         rule_num: 1
+        comment: "Allow k3s API from {{ item }}"
+      loop: "{{ k3s_api_internal_cidrs }}"
+      notify: Save iptables rules
+
+    - name: Allow k3s API server port from trusted public CIDRs
+      ansible.builtin.iptables:
+        chain: INPUT
+        protocol: tcp
+        source: "{{ item }}"
+        destination_port: "6443"
+        jump: ACCEPT
+        action: insert
+        rule_num: 1
+        comment: "Allow k3s API from trusted public CIDR {{ item }}"
+      loop: "{{ k3s_api_trusted_cidrs }}"
       notify: Save iptables rules
 
   handlers:

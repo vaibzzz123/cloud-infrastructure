@@ -31,7 +31,6 @@ k3s_cluster:
     token: "{{ k3s_token }}"
     # Overwrote default api endpoint as private ip within the VCN is required for it to not hang on final k3s install step
     api_endpoint: "{{ k3s_server_private_ip }}"
-    k3s_server_netbird_hostname: "k3s-server.netbird.cloud"
 
 
     # Optional vars
