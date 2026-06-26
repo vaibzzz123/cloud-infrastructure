@@ -1,0 +1,11 @@
+[sshd]
+enabled = true
+backend = systemd
+maxretry = {{ fail2ban_sshd_maxretry }}
+findtime = {{ fail2ban_sshd_findtime }}
+bantime = {{ fail2ban_sshd_bantime }}
+bantime.increment = true
+# Multipliers apply to the base bantime: 10m, 1h, 4h, then 24h.
+bantime.multipliers = {{ fail2ban_sshd_bantime_multipliers | join(' ') }}
+bantime.maxtime = {{ fail2ban_sshd_bantime_maxtime }}
+ignoreip = {{ fail2ban_ignore_cidrs | join(' ') }}
