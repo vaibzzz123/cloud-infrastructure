@@ -230,43 +230,210 @@
   tags: k3s
   ansible.builtin.import_playbook: k3s.orchestration.site
 
-- name: Copy private kubeconfig to agent nodes
+- name: Configure limited kubectl access on agent nodes
   hosts: agent
   tags: kubeconfig-agents
   gather_facts: false
   become: true
+  vars:
+    agent_diagnostics_namespace: kube-system
+    agent_diagnostics_service_account: agent-diagnostics
+    agent_diagnostics_context: agent-diagnostics
+    agent_diagnostics_token_duration: "8760h" # 1 year, will need to refresh token before then
+    agent_diagnostics_kubeconfig_path: "~{{ ansible_user }}/.kube/config"
   tasks:
-    - name: Read kubeconfig from server node
-      ansible.builtin.slurp:
-        src: /etc/rancher/k3s/k3s.yaml
+    - name: Wait for diagnostics ServiceAccount
+      ansible.builtin.command:
+        cmd: >
+          k3s kubectl -n {{ agent_diagnostics_namespace }}
+          get serviceaccount {{ agent_diagnostics_service_account }}
       delegate_to: "{{ groups['server'][0] }}"
       run_once: true
-      register: k3s_server_kubeconfig
+      register: agent_diagnostics_service_account_check
+      retries: 12
+      delay: 5
+      until: agent_diagnostics_service_account_check.rc == 0
+      changed_when: false
+
+    - name: Wait for diagnostics ClusterRoleBinding
+      ansible.builtin.command:
+        cmd: k3s kubectl get clusterrolebinding agent-diagnostics-readonly
+      delegate_to: "{{ groups['server'][0] }}"
+      run_once: true
+      register: agent_diagnostics_clusterrolebinding_check
+      retries: 12
+      delay: 5
+      until: agent_diagnostics_clusterrolebinding_check.rc == 0
+      changed_when: false
+
+    - name: Check limited kubeconfig on agent nodes
+      ansible.builtin.stat:
+        path: "{{ agent_diagnostics_kubeconfig_path }}"
+      register: agent_diagnostics_kubeconfig
+
+    - name: Ensure user kubeconfig directory exists on agent nodes
+      ansible.builtin.file:
+        path: "~{{ ansible_user }}/.kube"
+        state: directory
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0700"
+
+    - name: Create initial limited kubeconfig on agent nodes
+      when: not agent_diagnostics_kubeconfig.stat.exists
+      no_log: true
+      block:
+        - name: Read cluster CA data
+          ansible.builtin.command:
+            cmd: >
+              k3s kubectl config view --raw
+              -o jsonpath='{.clusters[0].cluster.certificate-authority-data}'
+          delegate_to: "{{ groups['server'][0] }}"
+          register: k3s_cluster_ca_data
+          changed_when: false
+
+        - name: Create diagnostics ServiceAccount token
+          ansible.builtin.command:
+            cmd: >
+              k3s kubectl -n {{ agent_diagnostics_namespace }}
+              create token {{ agent_diagnostics_service_account }}
+              --duration={{ agent_diagnostics_token_duration }}
+          delegate_to: "{{ groups['server'][0] }}"
+          register: agent_diagnostics_token
+          changed_when: false
+
+        - name: Ensure limited kubeconfig values were created
+          ansible.builtin.assert:
+            that:
+              - k3s_cluster_ca_data.stdout | length > 0
+              - agent_diagnostics_token.stdout | length > 0
+            fail_msg: "Failed to build the limited agent kubeconfig."
+            quiet: true
+
+        - name: Copy limited kubeconfig to agent nodes
+          ansible.builtin.copy:
+            dest: "{{ agent_diagnostics_kubeconfig_path }}"
+            owner: "{{ ansible_user }}"
+            group: "{{ ansible_user }}"
+            mode: "0600"
+            content: |
+              apiVersion: v1
+              kind: Config
+              clusters:
+                - name: k3s
+                  cluster:
+                    server: https://{{ api_endpoint }}:{{ api_port | default(6443) }}
+                    certificate-authority-data: {{ k3s_cluster_ca_data.stdout }}
+              users:
+                - name: {{ agent_diagnostics_service_account }}
+                  user:
+                    token: {{ agent_diagnostics_token.stdout }}
+              contexts:
+                - name: {{ agent_diagnostics_context }}
+                  context:
+                    cluster: k3s
+                    user: {{ agent_diagnostics_service_account }}
+              current-context: {{ agent_diagnostics_context }}
+
+- name: Refresh limited kubectl token on agent nodes
+  hosts: agent
+  tags:
+    - never
+    - agent-token-refresh
+  gather_facts: false
+  become: true
+  vars:
+    agent_diagnostics_namespace: kube-system
+    agent_diagnostics_service_account: agent-diagnostics
+    agent_diagnostics_context: agent-diagnostics
+    agent_diagnostics_token_duration: "8760h" # 1 year, will need to refresh token before then
+    agent_diagnostics_kubeconfig_path: "~{{ ansible_user }}/.kube/config"
+  tasks:
+    - name: Wait for diagnostics ServiceAccount
+      ansible.builtin.command:
+        cmd: >
+          k3s kubectl -n {{ agent_diagnostics_namespace }}
+          get serviceaccount {{ agent_diagnostics_service_account }}
+      delegate_to: "{{ groups['server'][0] }}"
+      run_once: true
+      register: agent_diagnostics_service_account_check
+      retries: 12
+      delay: 5
+      until: agent_diagnostics_service_account_check.rc == 0
+      changed_when: false
+
+    - name: Wait for diagnostics ClusterRoleBinding
+      ansible.builtin.command:
+        cmd: k3s kubectl get clusterrolebinding agent-diagnostics-readonly
+      delegate_to: "{{ groups['server'][0] }}"
+      run_once: true
+      register: agent_diagnostics_clusterrolebinding_check
+      retries: 12
+      delay: 5
+      until: agent_diagnostics_clusterrolebinding_check.rc == 0
+      changed_when: false
+
+    - name: Read cluster CA data
+      ansible.builtin.command:
+        cmd: >
+          k3s kubectl config view --raw
+          -o jsonpath='{.clusters[0].cluster.certificate-authority-data}'
+      delegate_to: "{{ groups['server'][0] }}"
+      register: k3s_cluster_ca_data
+      changed_when: false
+
+    - name: Create diagnostics ServiceAccount token
+      ansible.builtin.command:
+        cmd: >
+          k3s kubectl -n {{ agent_diagnostics_namespace }}
+          create token {{ agent_diagnostics_service_account }}
+          --duration={{ agent_diagnostics_token_duration }}
+      delegate_to: "{{ groups['server'][0] }}"
+      register: agent_diagnostics_token
+      changed_when: false
       no_log: true
 
-    - name: Ensure k3s config directory exists on agent nodes
-      ansible.builtin.file:
-        path: /etc/rancher/k3s
-        state: directory
-        owner: root
-        group: root
-        mode: "0755"
+    - name: Ensure limited kubeconfig values were created
+      ansible.builtin.assert:
+        that:
+          - k3s_cluster_ca_data.stdout | length > 0
+          - agent_diagnostics_token.stdout | length > 0
+        fail_msg: "Failed to refresh the limited agent kubeconfig."
+        quiet: true
+      no_log: true
 
-    - name: Copy kubeconfig to agent nodes with private API endpoint
-      ansible.builtin.copy:
-        dest: /etc/rancher/k3s/k3s.yaml
+    - name: Ensure user kubeconfig directory exists on agent nodes
+      ansible.builtin.file:
+        path: "~{{ ansible_user }}/.kube"
+        state: directory
         owner: "{{ ansible_user }}"
-        group: root
+        group: "{{ ansible_user }}"
+        mode: "0700"
+
+    - name: Refresh limited kubeconfig on agent nodes
+      ansible.builtin.copy:
+        dest: "{{ agent_diagnostics_kubeconfig_path }}"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
         mode: "0600"
-        content: >-
-          {{
-            k3s_server_kubeconfig.content
-            | b64decode
-            | regex_replace(
-                'server: https://[^:]+:[0-9]+',
-                'server: https://' ~ api_endpoint ~ ':' ~ (api_port | default(6443) | string)
-              )
-          }}
+        content: |
+          apiVersion: v1
+          kind: Config
+          clusters:
+            - name: k3s
+              cluster:
+                server: https://{{ api_endpoint }}:{{ api_port | default(6443) }}
+                certificate-authority-data: {{ k3s_cluster_ca_data.stdout }}
+          users:
+            - name: {{ agent_diagnostics_service_account }}
+              user:
+                token: {{ agent_diagnostics_token.stdout }}
+          contexts:
+            - name: {{ agent_diagnostics_context }}
+              context:
+                cluster: k3s
+                user: {{ agent_diagnostics_service_account }}
+          current-context: {{ agent_diagnostics_context }}
       no_log: true
 
 # Only runs on local machine with delegate_to: 127.0.0.1, so kube config works

@@ -47,6 +47,8 @@ k3s_cluster:
     # Manifests or Airgap should be either full paths or relative to the playbook directory.
     # List of locally available manifests to apply to the cluster, useful for PVCs or Traefik modifications.
     # extra_manifests: [ '/path/to/manifest1.yaml', '/path/to/manifest2.yaml' ]
+    extra_manifests:
+      - "{{ inventory_dir }}/files/agent-diagnostics-rbac.yml"
     # airgap_dir: /tmp/k3s-airgap-images
 
     server_config_yaml:  |
