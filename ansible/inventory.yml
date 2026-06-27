@@ -52,6 +52,13 @@ k3s_cluster:
     # airgap_dir: /tmp/k3s-airgap-images
 
     server_config_yaml:  |
+      secrets-encryption: true
+      kube-apiserver-arg:
+        - "audit-log-path={{ k3s_audit_log_path }}"
+        - "audit-policy-file={{ k3s_audit_policy_path }}"
+        - "audit-log-maxage=30"
+        - "audit-log-maxbackup=10"
+        - "audit-log-maxsize=100"
       tls-san:
         - "{{ k3s_server_ansible_host }}"
         - "{{ k3s_server_netbird_hostname }}"

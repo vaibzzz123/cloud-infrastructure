@@ -226,6 +226,37 @@
     - name: Save iptables rules
       ansible.builtin.command: netfilter-persistent save
 
+- name: Configure k3s server audit policy
+  hosts: server
+  gather_facts: false
+  tags:
+    - k3s
+    - k3s-security
+  become: true
+  tasks:
+    - name: Ensure k3s audit directories exist
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0700"
+      loop:
+        - "{{ k3s_audit_policy_path | dirname }}"
+        - "{{ k3s_audit_log_dir }}"
+
+    - name: Configure k3s audit policy
+      ansible.builtin.copy:
+        dest: "{{ k3s_audit_policy_path }}"
+        owner: root
+        group: root
+        mode: "0600"
+        content: |
+          apiVersion: audit.k8s.io/v1
+          kind: Policy
+          rules:
+            - level: Metadata
+
 - name: Setup k3s cluster
   tags: k3s
   ansible.builtin.import_playbook: k3s.orchestration.site
