@@ -1,0 +1,202 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+umask 077
+
+backup_root="{{ k3s_backup_root | default('/var/backups/k3s-cluster') }}"
+retention_count={{ k3s_backup_retention_count | default(3) }}
+node_role="{{ 'server' if 'server' in group_names else 'agent' }}"
+host_name="$(hostname -s)"
+stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+work_dir="${backup_root}/${host_name}-${stamp}.partial"
+dest_dir="${backup_root}/${host_name}-${stamp}"
+
+mkdir -p "${backup_root}"
+rm -rf -- "${work_dir}"
+mkdir -p "${work_dir}"
+chmod 0700 "${work_dir}"
+
+log_file="${work_dir}/backup.log"
+exec > >(tee -a "${log_file}") 2>&1
+
+echo "backup_started_at=${stamp}"
+echo "node=${host_name}"
+echo "role=${node_role}"
+
+tar_gz() {
+  local archive="$1"
+  shift
+
+  if (( "$#" == 0 )); then
+    return 0
+  fi
+
+  local rc=0
+  tar --ignore-failed-read --warning=no-file-changed -C / -czf "${archive}" "$@" || rc=$?
+  if (( rc > 1 )); then
+    return "${rc}"
+  fi
+}
+
+kubectl_dump() {
+  local resource="$1"
+  local output="$2"
+  local err="${output}.err"
+
+  if k3s kubectl get "${resource}" --all-namespaces -o yaml >"${output}" 2>"${err}"; then
+    rm -f -- "${err}"
+  else
+    rm -f -- "${output}" "${err}"
+    echo "skipped_kubernetes_resource=${resource}"
+  fi
+}
+
+backup_kubernetes_api() {
+  if ! command -v k3s >/dev/null 2>&1; then
+    echo "k3s_not_found=true"
+    return 0
+  fi
+
+  local out="${work_dir}/kubernetes"
+  mkdir -p "${out}"
+
+  k3s kubectl get namespaces -o yaml >"${out}/namespaces.yaml"
+
+  local resources=(
+    all
+    configmaps
+    secrets
+    serviceaccounts
+    persistentvolumeclaims
+    persistentvolumes
+    storageclasses
+    ingressclasses
+    ingresses
+    roles
+    rolebindings
+    clusterroles
+    clusterrolebindings
+    networkpolicies
+    customresourcedefinitions
+  )
+
+  local resource
+  for resource in "${resources[@]}"; do
+    kubectl_dump "${resource}" "${out}/${resource}.yaml"
+  done
+
+  local optional_resources=(
+    sealedsecrets.bitnami.com
+    certificates.cert-manager.io
+    certificaterequests.cert-manager.io
+    clusterissuers.cert-manager.io
+    issuers.cert-manager.io
+    orders.acme.cert-manager.io
+    challenges.acme.cert-manager.io
+    volumes.longhorn.io
+    snapshots.longhorn.io
+    backups.longhorn.io
+    backuptargets.longhorn.io
+    recurringjobs.longhorn.io
+    systembackups.longhorn.io
+  )
+
+  for resource in "${optional_resources[@]}"; do
+    kubectl_dump "${resource}" "${out}/${resource}.yaml"
+  done
+
+  if k3s kubectl -n kube-system get secret -l sealedsecrets.bitnami.com/sealed-secrets-key -o yaml >"${out}/sealed-secrets-controller-keys.yaml" 2>"${out}/sealed-secrets-controller-keys.yaml.err"; then
+    rm -f -- "${out}/sealed-secrets-controller-keys.yaml.err"
+  else
+    rm -f -- "${out}/sealed-secrets-controller-keys.yaml"
+    echo "sealed_secrets_controller_keys_found=false"
+  fi
+}
+
+backup_k3s_server_state() {
+  local out="${work_dir}/k3s"
+  mkdir -p "${out}"
+
+  if k3s etcd-snapshot save --name "${host_name}-${stamp}" --dir "${out}/etcd-snapshots" >/dev/null 2>"${out}/etcd-snapshot.err"; then
+    rm -f -- "${out}/etcd-snapshot.err"
+    echo "k3s_etcd_snapshot=true"
+  else
+    echo "k3s_etcd_snapshot=false"
+  fi
+
+  local db="/var/lib/rancher/k3s/server/db/state.db"
+  if [[ -f "${db}" ]]; then
+    if command -v sqlite3 >/dev/null 2>&1; then
+      sqlite3 "${db}" ".backup '${out}/state.db'"
+      echo "k3s_sqlite_backup=true"
+    else
+      tar_gz "${out}/sqlite-db-files.tar.gz" \
+        var/lib/rancher/k3s/server/db/state.db \
+        var/lib/rancher/k3s/server/db/state.db-wal \
+        var/lib/rancher/k3s/server/db/state.db-shm
+      echo "k3s_sqlite_backup=fallback_tar"
+    fi
+  fi
+
+  local sensitive_paths=()
+  local path
+  for path in \
+    var/lib/rancher/k3s/server/token \
+    var/lib/rancher/k3s/server/node-token \
+    var/lib/rancher/k3s/server/cred \
+    var/lib/rancher/k3s/server/tls \
+    var/lib/rancher/k3s/server/manifests \
+    etc/rancher/k3s; do
+    if [[ -e "/${path}" ]]; then
+      sensitive_paths+=("${path}")
+    fi
+  done
+
+  tar_gz "${out}/server-sensitive-files.tar.gz" "${sensitive_paths[@]}"
+}
+
+backup_longhorn_local_data() {
+  if [[ ! -d /var/lib/longhorn ]]; then
+    echo "longhorn_data_dir_found=false"
+    return 0
+  fi
+
+  tar_gz "${work_dir}/longhorn-data.tar.gz" var/lib/longhorn
+  echo "longhorn_data_dir_found=true"
+}
+
+rotate_backups() {
+  mapfile -t backups < <(find "${backup_root}" -mindepth 1 -maxdepth 1 -type d -name "${host_name}-20*" ! -name "*.partial" | sort -r)
+  local backup_count
+  backup_count="$(printf '%s\n' "${backups[@]}" | sed '/^$/d' | wc -l)"
+  if (( backup_count <= retention_count )); then
+    return 0
+  fi
+
+  local old
+  for old in "${backups[@]:retention_count}"; do
+    rm -rf -- "${old}"
+    echo "removed_old_backup=${old}"
+  done
+
+  find "${backup_root}" -mindepth 1 -maxdepth 1 -type d -name "${host_name}-*.partial" -mtime +1 -exec rm -rf {} +
+}
+
+if [[ "${node_role}" == "server" ]]; then
+  backup_kubernetes_api
+  backup_k3s_server_state
+fi
+
+backup_longhorn_local_data
+
+(
+  cd "${work_dir}"
+  find . -type f ! -name MANIFEST.txt ! -name SIZE_BYTES.txt -printf '%s %P\n' | sort -nr
+) >"${work_dir}/MANIFEST.txt"
+du -sb "${work_dir}" | awk '{print $1}' >"${work_dir}/SIZE_BYTES.txt"
+mv "${work_dir}" "${dest_dir}"
+rotate_backups
+
+echo "backup_dir=${dest_dir}"
+du -sh "${dest_dir}"
+echo "backup_finished_at=$(date -u +%Y%m%dT%H%M%SZ)"

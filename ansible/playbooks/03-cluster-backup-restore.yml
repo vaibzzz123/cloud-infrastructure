@@ -1,0 +1,287 @@
+- name: Install daily k3s cluster backup timer
+  hosts: k3s_cluster
+  gather_facts: false
+  tags:
+    - k3s-backup
+    - k3s-security
+  become: true
+  tasks:
+    - name: Install sqlite backup dependency on server
+      when: "'server' in group_names"
+      ansible.builtin.apt:
+        name: sqlite3
+        state: present
+        update_cache: yes
+        lock_timeout: 600
+
+    - name: Ensure backup root exists
+      ansible.builtin.file:
+        path: "{{ k3s_backup_root }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0700"
+
+    - name: Install cluster backup script
+      ansible.builtin.template:
+        src: ../templates/k3s-cluster-backup.sh.j2
+        dest: /usr/local/sbin/k3s-cluster-backup
+        owner: root
+        group: root
+        mode: "0700"
+
+    - name: Install cluster restore script
+      ansible.builtin.template:
+        src: ../templates/k3s-cluster-restore.sh.j2
+        dest: /usr/local/sbin/k3s-cluster-restore
+        owner: root
+        group: root
+        mode: "0700"
+
+    - name: Install cluster backup service
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/k3s-cluster-backup.service
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Back up local k3s cluster state
+          Documentation=man:systemd.service(5)
+
+          [Service]
+          Type=oneshot
+          ExecStart=/usr/local/sbin/k3s-cluster-backup
+          Nice=10
+          IOSchedulingClass=best-effort
+          IOSchedulingPriority=7
+
+    - name: Install cluster backup timer
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/k3s-cluster-backup.timer
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Run local k3s cluster backup daily
+          Documentation=man:systemd.timer(5)
+
+          [Timer]
+          OnCalendar={{ k3s_backup_calendar }}
+          Persistent=true
+          RandomizedDelaySec=1h
+          Unit=k3s-cluster-backup.service
+
+          [Install]
+          WantedBy=timers.target
+
+    - name: Enable and start cluster backup timer
+      ansible.builtin.systemd_service:
+        name: k3s-cluster-backup.timer
+        enabled: true
+        state: started
+        daemon_reload: true
+
+# Need to have environment variables set, ex):
+#  ansible-playbook -i inventory.yml playbook.yml \
+#     --vault-password-file group_vars/.vault_password \
+#     --tags k3s-restore \
+#     -e k3s_restore_confirm=true \
+#     -e k3s_restore_backup_timestamp=latest
+# Could also set specific timestamp like k3s_restore_backup_timestamp=20260629T034956Z
+# Or if you have a specific backup path, you can set k3s_restore_backup_path=/absolute/path/to/backup
+
+- name: Prepare selected k3s cluster restore backup
+  hosts: k3s_cluster
+  gather_facts: false
+  tags:
+    - never
+    - k3s-restore
+  become: true
+  tasks:
+    - name: Confirm restore was explicitly requested
+      ansible.builtin.assert:
+        that:
+          - k3s_restore_confirm | default(false) | bool
+          - k3s_restore_backup_timestamp is defined or k3s_restore_backup_path is defined
+          - k3s_restore_backup_timestamp | default('latest') == 'latest'
+            or k3s_restore_backup_timestamp | default('') is match('^20[0-9]{6}T[0-9]{6}Z$')
+          - k3s_restore_backup_path is not defined
+            or k3s_restore_backup_path is match('^/')
+        fail_msg: >
+          Restore requires -e k3s_restore_confirm=true and either
+          -e k3s_restore_backup_timestamp=YYYYMMDDTHHMMSSZ, -e k3s_restore_backup_timestamp=latest,
+          or -e k3s_restore_backup_path=/absolute/path.
+        quiet: true
+
+    - name: Resolve selected backup path
+      ansible.builtin.shell:
+        cmd: >
+          set -eu;
+          if [ -n "{{ k3s_restore_backup_path | default('') }}" ]; then
+            printf '%s\n' "{{ k3s_restore_backup_path | default('') }}";
+          elif [ "{{ k3s_restore_backup_timestamp | default('') }}" = "latest" ]; then
+            find "{{ k3s_backup_root }}" -mindepth 1 -maxdepth 1 -type d -name "$(hostname -s)-20*" | sort | tail -1;
+          else
+            printf '%s/%s-%s\n' "{{ k3s_backup_root }}" "$(hostname -s)" "{{ k3s_restore_backup_timestamp }}";
+          fi
+      register: k3s_restore_selected_backup
+      changed_when: false
+
+    - name: Validate selected backup exists
+      ansible.builtin.stat:
+        path: "{{ k3s_restore_selected_backup.stdout }}"
+      register: k3s_restore_selected_backup_stat
+
+    - name: Fail when selected backup is missing
+      ansible.builtin.assert:
+        that:
+          - k3s_restore_selected_backup.stdout | length > 0
+          - k3s_restore_selected_backup_stat.stat.isdir
+        fail_msg: "Selected restore backup does not exist on {{ inventory_hostname }}: {{ k3s_restore_selected_backup.stdout }}"
+        quiet: true
+
+    - name: Validate server backup contents
+      when: "'server' in group_names"
+      ansible.builtin.shell:
+        cmd: >
+          set -eu;
+          test -s "{{ k3s_restore_selected_backup.stdout }}/k3s/state.db";
+          test -s "{{ k3s_restore_selected_backup.stdout }}/k3s/server-sensitive-files.tar.gz";
+          sqlite3 "{{ k3s_restore_selected_backup.stdout }}/k3s/state.db" 'PRAGMA integrity_check;' | grep -qx ok;
+          tar -tzf "{{ k3s_restore_selected_backup.stdout }}/k3s/server-sensitive-files.tar.gz" >/dev/null
+      changed_when: false
+
+    - name: Validate Longhorn backup archive when present
+      ansible.builtin.shell:
+        cmd: >
+          set -eu;
+          archive="{{ k3s_restore_selected_backup.stdout }}/longhorn-data.tar.gz";
+          if [ -s "$archive" ]; then tar -tzf "$archive" >/dev/null; fi
+      changed_when: false
+
+- name: Stop k3s services before cluster restore
+  hosts: k3s_cluster
+  gather_facts: false
+  tags:
+    - never
+    - k3s-restore
+  become: true
+  tasks:
+    - name: Stop backup timer during restore
+      ansible.builtin.systemd_service:
+        name: k3s-cluster-backup.timer
+        state: stopped
+      failed_when: false
+
+    - name: Stop k3s agent service
+      when: "'agent' in group_names"
+      ansible.builtin.systemd_service:
+        name: k3s-agent
+        state: stopped
+
+    - name: Stop k3s server service
+      when: "'server' in group_names"
+      ansible.builtin.systemd_service:
+        name: k3s
+        state: stopped
+
+- name: Restore k3s cluster files from selected backup
+  hosts: k3s_cluster
+  gather_facts: false
+  tags:
+    - never
+    - k3s-restore
+  become: true
+  tasks:
+    - name: Restore files from selected backup
+      ansible.builtin.command:
+        argv:
+          - /usr/local/sbin/k3s-cluster-restore
+          - "{{ k3s_restore_selected_backup.stdout }}"
+          - "{{ 'server' if 'server' in group_names else 'agent' }}"
+
+- name: Start and verify restored k3s server
+  hosts: server
+  gather_facts: false
+  tags:
+    - never
+    - k3s-restore
+  become: true
+  tasks:
+    - name: Start k3s server service
+      ansible.builtin.systemd_service:
+        name: k3s
+        state: started
+
+    - name: Wait for k3s API
+      ansible.builtin.command:
+        cmd: k3s kubectl get nodes
+      register: k3s_restore_api_check
+      changed_when: false
+      retries: 30
+      delay: 5
+      until: k3s_restore_api_check.rc == 0
+
+- name: Start restored k3s agents
+  hosts: agent
+  gather_facts: false
+  tags:
+    - never
+    - k3s-restore
+  become: true
+  tasks:
+    - name: Start k3s agent service
+      ansible.builtin.systemd_service:
+        name: k3s-agent
+        state: started
+
+- name: Verify restored k3s cluster
+  hosts: server
+  gather_facts: false
+  tags:
+    - never
+    - k3s-restore
+  become: true
+  tasks:
+    - name: Wait for all Kubernetes nodes to be Ready
+      ansible.builtin.command:
+        cmd: k3s kubectl wait --for=condition=Ready nodes --all --timeout=180s
+      register: k3s_restore_ready_check
+      changed_when: false
+      retries: 3
+      delay: 10
+      until: k3s_restore_ready_check.rc == 0
+
+    - name: Show restored node status
+      ansible.builtin.command:
+        cmd: k3s kubectl get nodes -o wide
+      register: k3s_restore_nodes
+      changed_when: false
+
+    - name: Show restored system pods
+      ansible.builtin.command:
+        cmd: k3s kubectl get pods -A
+      register: k3s_restore_pods
+      changed_when: false
+
+    - name: Print restored cluster status
+      ansible.builtin.debug:
+        msg:
+          - "{{ k3s_restore_nodes.stdout_lines }}"
+          - "{{ k3s_restore_pods.stdout_lines }}"
+
+- name: Re-enable backup timer after cluster restore
+  hosts: k3s_cluster
+  gather_facts: false
+  tags:
+    - never
+    - k3s-restore
+  become: true
+  tasks:
+    - name: Enable and start backup timer
+      ansible.builtin.systemd_service:
+        name: k3s-cluster-backup.timer
+        enabled: true
+        state: started

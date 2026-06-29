@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+umask 077
+
+backup_dir="${1:?usage: k3s-cluster-restore BACKUP_DIR ROLE}"
+node_role="${2:?usage: k3s-cluster-restore BACKUP_DIR ROLE}"
+stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+safety_root="{{ k3s_backup_root | default('/var/backups/k3s-cluster') }}/restore-safety"
+safety_dir="${safety_root}/$(hostname -s)-${stamp}"
+
+if [[ ! -d "${backup_dir}" ]]; then
+  echo "backup_dir_not_found=${backup_dir}" >&2
+  exit 1
+fi
+
+mkdir -p "${safety_dir}"
+chmod 0700 "${safety_dir}"
+
+echo "restore_started_at=${stamp}"
+echo "node=$(hostname -s)"
+echo "role=${node_role}"
+echo "backup_dir=${backup_dir}"
+echo "safety_dir=${safety_dir}"
+
+save_path() {
+  local path="$1"
+  if [[ -e "${path}" ]]; then
+    mkdir -p "${safety_dir}/$(dirname "${path}")"
+    mv "${path}" "${safety_dir}/${path#/}"
+    echo "saved_existing=${path}"
+  fi
+}
+
+restore_server_state() {
+  local db_backup="${backup_dir}/k3s/state.db"
+  local sensitive_archive="${backup_dir}/k3s/server-sensitive-files.tar.gz"
+
+  test -s "${db_backup}"
+  test -s "${sensitive_archive}"
+  sqlite3 "${db_backup}" "PRAGMA integrity_check;" | grep -qx ok
+  tar -tzf "${sensitive_archive}" >/dev/null
+
+  save_path /var/lib/rancher/k3s/server/db
+  save_path /var/lib/rancher/k3s/server/token
+  save_path /var/lib/rancher/k3s/server/node-token
+  save_path /var/lib/rancher/k3s/server/cred
+  save_path /var/lib/rancher/k3s/server/tls
+  save_path /var/lib/rancher/k3s/server/manifests
+  save_path /etc/rancher/k3s
+
+  mkdir -p /var/lib/rancher/k3s/server/db
+  install -o root -g root -m 0644 "${db_backup}" /var/lib/rancher/k3s/server/db/state.db
+  rm -f /var/lib/rancher/k3s/server/db/state.db-wal /var/lib/rancher/k3s/server/db/state.db-shm
+
+  tar -xzf "${sensitive_archive}" -C /
+  echo "server_state_restored=true"
+}
+
+restore_longhorn_data() {
+  local archive="${backup_dir}/longhorn-data.tar.gz"
+
+  if [[ ! -s "${archive}" ]]; then
+    echo "longhorn_archive_found=false"
+    return 0
+  fi
+
+  tar -tzf "${archive}" >/dev/null
+  save_path /var/lib/longhorn
+  tar -xzf "${archive}" -C /
+  echo "longhorn_data_restored=true"
+}
+
+case "${node_role}" in
+  server)
+    restore_server_state
+    restore_longhorn_data
+    ;;
+  agent)
+    restore_longhorn_data
+    ;;
+  *)
+    echo "unsupported_role=${node_role}" >&2
+    exit 1
+    ;;
+esac
+
+echo "restore_finished_at=$(date -u +%Y%m%dT%H%M%SZ)"
