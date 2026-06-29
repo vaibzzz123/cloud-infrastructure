@@ -262,7 +262,7 @@
   ansible.builtin.import_playbook: k3s.orchestration.site
 
 - name: Install daily k3s cluster backups
-  ansible.builtin.import_playbook: playbooks/03-cluster-backup.yml
+  ansible.builtin.import_playbook: playbooks/03-cluster-backup-restore.yml
 
 - name: Configure limited kubectl access on agent nodes
   hosts: agent

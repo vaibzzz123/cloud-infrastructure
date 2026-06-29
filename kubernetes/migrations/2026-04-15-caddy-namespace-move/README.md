@@ -17,8 +17,8 @@ from `/var/lib/netbird`.
 
 - Your current `kubectl` context points at the target cluster.
 - `kubectl` can create resources in both `default` and `caddy`.
-- The updated manifests in `kubernetes/caddy/` have already been committed.
-- `kubernetes/caddy/03-sealedsecret.yml` is already resealed for namespace
+- The updated manifests in `kubernetes/04-caddy/` have already been committed.
+- `kubernetes/04-caddy/03-sealedsecret.yml` is already resealed for namespace
   `caddy`.
 - Brief downtime is acceptable during the cutover.
 
@@ -32,13 +32,13 @@ Run the cutover script from anywhere inside the repo:
 
 What it does:
 
-1. Applies `kubernetes/caddy/00` through `03`
+1. Applies `kubernetes/04-caddy/00` through `03`
 2. Scales the old `default/caddy-deployment` to `0`
 3. Starts helper Pods in `default` and `caddy`
 4. Copies `/var/lib/netbird` from the old PVC to the new PVC with `tar`
-5. Applies `kubernetes/caddy/04` and `05`
+5. Applies `kubernetes/04-caddy/04` and `05`
 6. Waits for the new `caddy` Deployment and secret
-7. Deletes the old `default` Ingress and applies `kubernetes/caddy/06`
+7. Deletes the old `default` Ingress and applies `kubernetes/04-caddy/06`
 8. Waits for the new TLS secret in namespace `caddy`
 
 ## Verify

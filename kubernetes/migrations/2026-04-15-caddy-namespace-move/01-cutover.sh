@@ -6,7 +6,7 @@ SCRIPT_DIR="$(cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../../.." && pwd)"
 
 MIGRATION_DIR="${REPO_ROOT}/kubernetes/migrations/2026-04-15-caddy-namespace-move"
-CADDY_DIR="${REPO_ROOT}/kubernetes/caddy"
+CADDY_DIR="${REPO_ROOT}/kubernetes/04-caddy"
 
 OLD_NS="default"
 NEW_NS="caddy"

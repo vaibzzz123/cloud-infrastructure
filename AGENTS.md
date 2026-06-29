@@ -22,10 +22,10 @@ Primary workflow:
   - `playbook.yml`: apt updates, firewall rules, and `k3s.orchestration.site`
   - `group_vars/*.yml`: ansible-vault encrypted environment-specific secrets and host vars
 - `kubernetes/`
-  - `caddy/`: handwritten application manifests
-  - `cert-manager/01-manifest.yml`: generated vendored cert-manager manifest
-  - `longhorn/01-manifest.yml`: generated vendored Longhorn manifest
-  - `sealed-secrets/00-manifest.yml`: generated vendored Sealed Secrets manifest
+  - `00-sealed-secrets/00-manifest.yml`: generated vendored Sealed Secrets manifest
+  - `01-cert-manager/01-manifest.yml`: generated vendored cert-manager manifest
+  - `02-longhorn/01-manifest.yml`: generated vendored Longhorn manifest
+  - `04-caddy/`: handwritten application manifests
   - `main.yml`: scratch/example manifest, not the main deployed workload
 
 ## Important Platform Assumptions
@@ -70,9 +70,9 @@ Rules:
 - Read nearby files before changing patterns; this repo is small enough that local consistency matters more than abstraction.
 - Prefer small, targeted edits over broad rewrites.
 - Preserve plain YAML unless the user explicitly asks to adopt Helm, Kustomize, or another deployment system.
-- Treat `cert-manager/01-manifest.yml`, `longhorn/01-manifest.yml`, and `sealed-secrets/00-manifest.yml` as generated vendor manifests.
+- Treat `kubernetes/00-sealed-secrets/00-manifest.yml`, `kubernetes/01-cert-manager/01-manifest.yml`, and `kubernetes/02-longhorn/01-manifest.yml` as generated vendor manifests.
 - Prefer regenerating large vendor manifests from their upstream source commands or comments rather than hand-editing deep inside them.
-- Keep handwritten app changes in `kubernetes/caddy/` unless the task clearly requires platform-level edits.
+- Keep handwritten app changes in `kubernetes/04-caddy/` unless the task clearly requires platform-level edits.
 - Keep comments minimal and practical.
 
 ## Safety
@@ -95,7 +95,7 @@ Run the lightest relevant checks you can after changes:
 ## Current Repo Notes
 
 - `ansible/requirements.yml` tracks `k3s-ansible` from `main`, so behavior can drift over time.
-- `kubernetes/caddy/06-ingress.yml` should prefer `spec.ingressClassName` for modern Ingress resources.
+- `kubernetes/04-caddy/06-ingress.yml` should prefer `spec.ingressClassName` for modern Ingress resources.
 - `terraform/main.tf` currently exposes SSH, HTTP, HTTPS, and the Kubernetes API publicly; treat security changes here carefully.
 - `terraform/outputs.tf` is the main handoff point from provisioning to host access.
 

@@ -61,7 +61,7 @@ variable "trusted_cidrs" {
 
   validation {
     condition     = alltrue([for cidr in var.trusted_cidrs : can(cidrhost(cidr, 0))])
-    error_message = "Each trusted CIDR must be a valid CIDR block, for example 123.4.567.89/32."
+    error_message = "Each trusted CIDR must be a valid CIDR block, for example 203.0.113.10/32."
   }
 }
 

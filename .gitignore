@@ -30,7 +30,10 @@ override.tf.json
 # !example_override.tf
 
 # Include tfplan files to ignore the plan output of command: terraform plan -out=tfplan
-# example: *tfplan*
+tfplan
+*.tfplan
+*.tfplan.json
+*.plan
 
 # Ignore CLI configuration files
 .terraformrc
@@ -39,9 +42,26 @@ terraform.rc
 .vault_password
 
 .env
+.env.*
+!.env.example
+!**/.env.example
+
+# Local key/kubeconfig material
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa
+id_ed25519
+kubeconfig
+*.kubeconfig
+admin.conf
 
 # Local Ansible secrets
 ansible/group_vars/all/secrets.yml
 
 # Repo-local automation output
 .local/
+
+# Local assistant/editor state
+.claude/
