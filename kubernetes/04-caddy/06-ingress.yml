@@ -38,9 +38,20 @@ spec:
             name: caddy-service
             port:
               number: 80
+  - host: suwayomi.vabkapoor.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: caddy-service
+            port:
+              number: 80
   tls:
   - hosts:
     - jellyfin.vabkapoor.com
     - immich.vabkapoor.com
     - seanime.vabkapoor.com
+    - suwayomi.vabkapoor.com
     secretName: vabkapoor-com-tls

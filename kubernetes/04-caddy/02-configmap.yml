@@ -25,6 +25,11 @@ data:
             reverse_proxy homeserver.netbird.cloud:3211
         }
 
+        @suwayomi host suwayomi.vabkapoor.com
+        handle @suwayomi {
+            reverse_proxy homeserver.netbird.cloud:4567
+        }
+
         handle {
             respond "Hello World" 200
         }

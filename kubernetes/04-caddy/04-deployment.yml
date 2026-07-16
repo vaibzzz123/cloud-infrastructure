@@ -52,7 +52,7 @@ spec:
           # But not going to use it here due to Caddy docs https://hub.docker.com/_/caddy/
           # subPath: Caddyfile
       - name: netbird
-        image: netbirdio/netbird:0.72.4
+        image: netbirdio/netbird:0.74.5
         env:
         - name: NB_HOSTNAME
           value: k3s-caddy
