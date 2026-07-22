@@ -71,7 +71,7 @@ spec:
           # But not going to use it here due to Caddy docs https://hub.docker.com/_/caddy/
           # subPath: Caddyfile
       - name: wireguard
-        image: lscr.io/linuxserver/wireguard:latest
+        image: lscr.io/linuxserver/wireguard:1.0.20260223
         env:
           - name: PUID
             value: "1000"
