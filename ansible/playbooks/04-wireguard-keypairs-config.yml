@@ -1,0 +1,278 @@
+---
+- name: Create the Caddy Pod WireGuard keypair locally
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: false
+  tags:
+    - never
+    - wireguard-keypairs
+  vars:
+    wireguard_key_source: generate
+    wireguard_local_key_dir: "{{ lookup('env', 'HOME') }}/.wireguard"
+    wireguard_pod_private_key_path: "{{ wireguard_local_key_dir }}/caddy-pod-private.key"
+    wireguard_pod_public_key_path: "{{ wireguard_local_key_dir }}/caddy-pod-public.key"
+  tasks:
+    - name: Validate local WireGuard key source
+      ansible.builtin.assert:
+        that: wireguard_key_source in ['generate', 'manual']
+        fail_msg: "Set wireguard_key_source to generate or manual."
+        quiet: true
+
+    - name: Ensure local WireGuard key directory exists
+      ansible.builtin.file:
+        path: "{{ wireguard_local_key_dir }}"
+        state: directory
+        mode: "0700"
+
+    - name: Check for local Caddy Pod private key
+      ansible.builtin.stat:
+        path: "{{ wireguard_pod_private_key_path }}"
+      register: wireguard_pod_private_key_stat
+      no_log: true
+
+    - name: Require a manually supplied Caddy Pod private key
+      ansible.builtin.assert:
+        that: wireguard_pod_private_key_stat.stat.exists
+        fail_msg: "Missing {{ wireguard_pod_private_key_path }}. Create it locally before manual mode."
+        quiet: true
+      when: wireguard_key_source == 'manual'
+
+    - name: Generate local Caddy Pod private key
+      ansible.builtin.command:
+        argv: [wg, genkey]
+      register: wireguard_generated_pod_private_key
+      changed_when: true
+      no_log: true
+      when:
+        - wireguard_key_source == 'generate'
+        - not wireguard_pod_private_key_stat.stat.exists
+
+    - name: Store local Caddy Pod private key
+      ansible.builtin.copy:
+        dest: "{{ wireguard_pod_private_key_path }}"
+        content: "{{ wireguard_generated_pod_private_key.stdout }}\n"
+        mode: "0600"
+      no_log: true
+      when:
+        - wireguard_key_source == 'generate'
+        - not wireguard_pod_private_key_stat.stat.exists
+
+    - name: Read local Caddy Pod private key
+      ansible.builtin.slurp:
+        src: "{{ wireguard_pod_private_key_path }}"
+      register: wireguard_pod_private_key
+      no_log: true
+
+    - name: Check for local Caddy Pod public key
+      ansible.builtin.stat:
+        path: "{{ wireguard_pod_public_key_path }}"
+      register: wireguard_pod_public_key_stat
+      no_log: true
+
+    - name: Derive local Caddy Pod public key
+      ansible.builtin.command:
+        argv: [wg, pubkey]
+        stdin: "{{ wireguard_pod_private_key.content | b64decode }}"
+      register: wireguard_generated_pod_public_key
+      changed_when: true
+      no_log: true
+      when: not wireguard_pod_public_key_stat.stat.exists
+
+    - name: Store local Caddy Pod public key
+      ansible.builtin.copy:
+        dest: "{{ wireguard_pod_public_key_path }}"
+        content: "{{ wireguard_generated_pod_public_key.stdout }}\n"
+        mode: "0600"
+      no_log: true
+      when: not wireguard_pod_public_key_stat.stat.exists
+
+- name: Create the homeserver WireGuard keypair remotely
+  hosts: homeservers
+  gather_facts: false
+  become: false
+  tags:
+    - never
+    - wireguard-keypairs
+  vars:
+    wireguard_key_source: generate
+    wireguard_homeserver_key_dir: "~{{ ansible_user }}/.wireguard"
+    wireguard_homeserver_private_key_path: "{{ wireguard_homeserver_key_dir }}/wireguard-private.key"
+    wireguard_homeserver_public_key_path: "{{ wireguard_homeserver_key_dir }}/wireguard-public.key"
+  tasks:
+    - name: Validate homeserver WireGuard key source
+      ansible.builtin.assert:
+        that: wireguard_key_source in ['generate', 'manual']
+        fail_msg: "Set wireguard_key_source to generate or manual."
+        quiet: true
+
+    - name: Install WireGuard tools on the homeserver
+      ansible.builtin.apt:
+        name: wireguard-tools
+        state: present
+        update_cache: true
+        lock_timeout: 600
+      become: true
+
+    - name: Ensure homeserver WireGuard key directory exists
+      ansible.builtin.file:
+        path: "{{ wireguard_homeserver_key_dir }}"
+        state: directory
+        mode: "0700"
+
+    - name: Check for homeserver private key
+      ansible.builtin.stat:
+        path: "{{ wireguard_homeserver_private_key_path }}"
+      register: wireguard_homeserver_private_key_stat
+      no_log: true
+
+    - name: Require a manually supplied homeserver private key
+      ansible.builtin.assert:
+        that: wireguard_homeserver_private_key_stat.stat.exists
+        fail_msg: "Missing {{ wireguard_homeserver_private_key_path }}. Create it on the homeserver before manual mode."
+        quiet: true
+      when: wireguard_key_source == 'manual'
+
+    - name: Generate homeserver private key
+      ansible.builtin.command:
+        argv: [wg, genkey]
+      register: wireguard_generated_homeserver_private_key
+      changed_when: true
+      no_log: true
+      when:
+        - wireguard_key_source == 'generate'
+        - not wireguard_homeserver_private_key_stat.stat.exists
+
+    - name: Store homeserver private key
+      ansible.builtin.copy:
+        dest: "{{ wireguard_homeserver_private_key_path }}"
+        content: "{{ wireguard_generated_homeserver_private_key.stdout }}\n"
+        mode: "0600"
+      no_log: true
+      when:
+        - wireguard_key_source == 'generate'
+        - not wireguard_homeserver_private_key_stat.stat.exists
+
+    - name: Read homeserver private key
+      ansible.builtin.slurp:
+        src: "{{ wireguard_homeserver_private_key_path }}"
+      register: wireguard_homeserver_private_key
+      no_log: true
+
+    - name: Check for homeserver public key
+      ansible.builtin.stat:
+        path: "{{ wireguard_homeserver_public_key_path }}"
+      register: wireguard_homeserver_public_key_stat
+      no_log: true
+
+    - name: Derive homeserver public key
+      ansible.builtin.command:
+        argv: [wg, pubkey]
+        stdin: "{{ wireguard_homeserver_private_key.content | b64decode }}"
+      register: wireguard_generated_homeserver_public_key
+      changed_when: true
+      no_log: true
+      when: not wireguard_homeserver_public_key_stat.stat.exists
+
+    - name: Store homeserver public key
+      ansible.builtin.copy:
+        dest: "{{ wireguard_homeserver_public_key_path }}"
+        content: "{{ wireguard_generated_homeserver_public_key.stdout }}\n"
+        mode: "0600"
+      no_log: true
+      when: not wireguard_homeserver_public_key_stat.stat.exists
+
+- name: Render WireGuard configurations
+  hosts: homeservers
+  gather_facts: false
+  become: false
+  tags:
+    - never
+    - wireguard-config
+  vars:
+    wireguard_local_key_dir: "{{ lookup('env', 'HOME') }}/.wireguard"
+    wireguard_pod_private_key_path: "{{ wireguard_local_key_dir }}/caddy-pod-private.key"
+    wireguard_pod_public_key_path: "{{ wireguard_local_key_dir }}/caddy-pod-public.key"
+    wireguard_pod_config_path: "{{ playbook_dir }}/../../kubernetes/04-caddy/wg0.conf"
+    wireguard_homeserver_key_dir: "~{{ ansible_user }}/.wireguard"
+    wireguard_homeserver_private_key_path: "{{ wireguard_homeserver_key_dir }}/wireguard-private.key"
+    wireguard_homeserver_public_key_path: "{{ wireguard_homeserver_key_dir }}/wireguard-public.key"
+    wireguard_homeserver_config_path: "{{ wireguard_homeserver_key_dir }}/wg0.conf"
+    wireguard_pod_address: "10.90.0.1/24"
+    wireguard_pod_tunnel_ip: "10.90.0.1"
+    wireguard_homeserver_address: "10.90.0.2/24"
+    wireguard_homeserver_tunnel_ip: "10.90.0.2"
+    wireguard_pod_listen_port: 30021
+    wireguard_mtu: 1380
+    wireguard_pod_endpoint: "{{ hostvars['k3s-server']['ansible_host'] | default('') }}"
+  tasks:
+    - name: Validate k3s server public endpoint
+      ansible.builtin.assert:
+        that:
+          - wireguard_pod_endpoint | length > 0
+        fail_msg: "Set k3s_server_ansible_host for the k3s-server inventory host to its public IP address or DNS name."
+        quiet: true
+
+    - name: Verify local Caddy Pod key files exist
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - "{{ wireguard_pod_private_key_path }}"
+        - "{{ wireguard_pod_public_key_path }}"
+      register: wireguard_local_pod_key_files
+      delegate_to: localhost
+      become: false
+      no_log: true
+
+    - name: Require local Caddy Pod key files
+      ansible.builtin.assert:
+        that: wireguard_local_pod_key_files.results | map(attribute='stat.exists') | min
+        fail_msg: "Run the wireguard-keypairs play before generating configuration."
+        quiet: true
+
+    - name: Read homeserver private key
+      ansible.builtin.slurp:
+        src: "{{ wireguard_homeserver_private_key_path }}"
+      register: wireguard_homeserver_private_key
+      no_log: true
+
+    - name: Read homeserver public key
+      ansible.builtin.slurp:
+        src: "{{ wireguard_homeserver_public_key_path }}"
+      register: wireguard_homeserver_public_key
+      no_log: true
+
+    - name: Write local Caddy Pod WireGuard configuration
+      ansible.builtin.copy:
+        dest: "{{ wireguard_pod_config_path }}"
+        mode: "0600"
+        content: |
+          [Interface]
+          PrivateKey = {{ lookup('ansible.builtin.file', wireguard_pod_private_key_path) | trim }}
+          Address = {{ wireguard_pod_address }}
+          ListenPort = {{ wireguard_pod_listen_port }}
+          MTU = {{ wireguard_mtu }}
+
+          [Peer]
+          PublicKey = {{ wireguard_homeserver_public_key.content | b64decode | trim }}
+          AllowedIPs = {{ wireguard_homeserver_tunnel_ip }}/32
+      delegate_to: localhost
+      become: false
+      no_log: true
+
+    - name: Write homeserver WireGuard configuration
+      ansible.builtin.copy:
+        dest: "{{ wireguard_homeserver_config_path }}"
+        mode: "0600"
+        content: |
+          [Interface]
+          PrivateKey = {{ wireguard_homeserver_private_key.content | b64decode | trim }}
+          Address = {{ wireguard_homeserver_address }}
+          MTU = {{ wireguard_mtu }}
+
+          [Peer]
+          PublicKey = {{ lookup('ansible.builtin.file', wireguard_pod_public_key_path) | trim }}
+          Endpoint = {{ wireguard_pod_endpoint }}:{{ wireguard_pod_listen_port }}
+          AllowedIPs = {{ wireguard_pod_tunnel_ip }}/32
+          PersistentKeepalive = 25
+      no_log: true

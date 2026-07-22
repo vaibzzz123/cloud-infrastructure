@@ -1,5 +1,5 @@
-- name: Harden SSH on all nodes
-  hosts: all
+- name: Harden SSH on all k3s nodes
+  hosts: k3s_cluster
   gather_facts: false
   become: true
   tags:
@@ -42,8 +42,8 @@
         name: ssh
         state: reloaded
 
-- name: Configure Fail2Ban for SSH on all nodes
-  hosts: all
+- name: Configure Fail2Ban for SSH on all k3s nodes
+  hosts: k3s_cluster
   gather_facts: false
   become: true
   tags:

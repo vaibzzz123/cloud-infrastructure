@@ -11,3 +11,19 @@ spec:
       port: 80
       targetPort: 80
   type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: wireguard-service
+  namespace: caddy
+spec:
+  selector:
+    app: caddy
+  type: NodePort
+  externalTrafficPolicy: Cluster
+  ports:
+    - protocol: UDP
+      port: 30021
+      targetPort: 30021
+      nodePort: 30021

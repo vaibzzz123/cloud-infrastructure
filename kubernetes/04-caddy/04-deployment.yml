@@ -17,6 +17,25 @@ spec:
       labels:
         app: caddy
     spec: # Pod specification
+      securityContext:
+        sysctls:
+          - name: net.ipv4.conf.all.src_valid_mark # Required for WireGuard to work properly
+            value: "1"
+      initContainers:
+      - name: wireguard-config-init
+        image: busybox:1.37.0
+        command:
+          - /bin/sh
+          - -ec
+          - |
+            install -d -o 1000 -g 1000 -m 0700 /runtime
+            install -o 1000 -g 1000 -m 0600 /source/wg0.conf /runtime/wg0.conf
+        volumeMounts:
+        - name: wireguard-config-source
+          mountPath: /source
+          readOnly: true
+        - name: wireguard-config-runtime
+          mountPath: /runtime
       containers:
       - name: caddy
         image: caddy:2.11.4
@@ -51,14 +70,13 @@ spec:
           # so it won't overwrite the entire directory
           # But not going to use it here due to Caddy docs https://hub.docker.com/_/caddy/
           # subPath: Caddyfile
-      - name: netbird
-        image: netbirdio/netbird:0.74.5
+      - name: wireguard
+        image: lscr.io/linuxserver/wireguard:latest
         env:
-        - name: NB_HOSTNAME
-          value: k3s-caddy
-        envFrom:
-        - secretRef:
-            name: netbird-secret
+          - name: PUID
+            value: "1000"
+          - name: PGID
+            value: "1000"
         resources:
           requests:
             memory: "64Mi"
@@ -70,17 +88,29 @@ spec:
           capabilities:
             add:
               - NET_ADMIN
-              - SYS_MODULE
-              - SYS_RESOURCE
+              # - SYS_MODULE
         volumeMounts:
-        - name: netbird-pvc
-          mountPath: /var/lib/netbird
+        - name: wireguard-pvc
+          mountPath: /config
+        - name: wireguard-config-runtime
+          mountPath: /config/wg_confs
+        ports:
+        - name: wireguard-port
+          protocol: UDP
+          containerPort: 30021
+
 
       # ConfigMaps are added as volumes to the Pod first
       volumes:
       - name: caddy-configmap
         configMap:
           name: caddy-configmap
-      - name: netbird-pvc
+      - name: wireguard-pvc
         persistentVolumeClaim:
-          claimName: netbird-pvc
+          claimName: wireguard-pvc
+      - name: wireguard-config-source
+        secret:
+          secretName: wireguard-secret
+          defaultMode: 0400
+      - name: wireguard-config-runtime
+        emptyDir: {}

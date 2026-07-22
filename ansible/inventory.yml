@@ -53,6 +53,8 @@ k3s_cluster:
 
     server_config_yaml:  |
       secrets-encryption: true
+      kubelet-arg:
+        - "allowed-unsafe-sysctls=net.ipv4.conf.all.src_valid_mark,net.ipv4.ip_forward"
       kube-apiserver-arg:
         - "audit-log-path={{ k3s_audit_log_path }}"
         - "audit-policy-file={{ k3s_audit_policy_path }}"
@@ -66,6 +68,10 @@ k3s_cluster:
     #   YAML here will be placed as the content of /etc/rancher/k3s/config.yaml
     #   See https://docs.k3s.io/installation/configuration#configuration-file
     # agent_config_yaml:  |
+    agent_config_yaml: |
+      kubelet-arg:
+        - "allowed-unsafe-sysctls=net.ipv4.conf.all.src_valid_mark,net.ipv4.ip_forward"
+
     #   Same as server_config_yaml, but for the agent nodes.
     #   YAML here will be placed as the content of /etc/rancher/k3s/config.yaml
     #   See https://docs.k3s.io/installation/configuration#configuration-file
@@ -73,3 +79,11 @@ k3s_cluster:
     #   Containerd can be configured to connect to private registries and use them to pull images as needed by the kubelet.
     #   YAML here will be placed as the content of /etc/rancher/k3s/registries.yaml
     #   See https://docs.k3s.io/installation/private-registry
+
+homeservers:
+  hosts:
+    homeserver:
+      ansible_host: "{{ homeserver_ansible_host }}"
+      ansible_user: "{{ homeserver_ansible_user }}"
+      ansible_ssh_private_key_file: "{{ homeserver_ansible_ssh_private_key_file }}"
+      ansible_become_password: "{{ homeserver_ansible_become_password }}"

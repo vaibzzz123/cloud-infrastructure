@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: netbird-pvc
+  name: wireguard-pvc
   namespace: caddy
 spec:
   accessModes:

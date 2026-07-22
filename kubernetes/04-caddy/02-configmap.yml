@@ -12,22 +12,22 @@ data:
     :80 {
         @jellyfin host jellyfin.vabkapoor.com
         handle @jellyfin {
-            reverse_proxy homeserver.netbird.cloud:8096
+            reverse_proxy 10.90.0.2:8096
         }
 
         @immich host immich.vabkapoor.com
         handle @immich {
-            reverse_proxy homeserver.netbird.cloud:2283
+            reverse_proxy 10.90.0.2:2283
         }
 
         @seanime host seanime.vabkapoor.com
         handle @seanime {
-            reverse_proxy homeserver.netbird.cloud:3211
+            reverse_proxy 10.90.0.2:3211
         }
 
         @suwayomi host suwayomi.vabkapoor.com
         handle @suwayomi {
-            reverse_proxy homeserver.netbird.cloud:4567
+            reverse_proxy 10.90.0.2:4567
         }
 
         handle {

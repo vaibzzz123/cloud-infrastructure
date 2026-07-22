@@ -1,5 +1,5 @@
-- name: Update packages on all hosts
-  hosts: all
+- name: Update packages on all k3s hosts
+  hosts: k3s_cluster
   gather_facts: false
   tags: update-packages
   become: true
@@ -10,8 +10,8 @@
         upgrade: dist
         lock_timeout: 600
 
-- name: Install storage prerequisites on all hosts
-  hosts: all
+- name: Install storage prerequisites on all k3s hosts
+  hosts: k3s_cluster
   gather_facts: false
   tags: storage-prereqs
   become: true
@@ -33,8 +33,8 @@
         enabled: true
         state: started
 
-- name: Install and connect NetBird on all hosts
-  hosts: all
+- name: Install and connect NetBird on all k3s hosts
+  hosts: k3s_cluster
   gather_facts: false
   tags: netbird
   become: true
@@ -114,8 +114,8 @@
   ansible.builtin.import_playbook: playbooks/02-host-hardening.yml
 
 # Check out https://docs.k3s.io/installation/requirements#networking for additional info
-- name: Configure firewall on all nodes
-  hosts: all
+- name: Configure firewall on all k3s nodes
+  hosts: k3s_cluster
   gather_facts: false
   tags: firewall-all
   become: true
@@ -485,8 +485,8 @@
       become: false
       changed_when: true
 
-- name: Configure kubectl shell aliases on all nodes
-  hosts: all
+- name: Configure kubectl shell aliases on all k3s nodes
+  hosts: k3s_cluster
   gather_facts: false
   tags: kubectl-alias
   become: true
@@ -501,8 +501,8 @@
         group: "{{ ansible_user }}"
         mode: "0644"
 
-- name: Reboot all hosts after package upgrades and k3s cluster setup
-  hosts: all
+- name: Reboot all k3s hosts after package upgrades and cluster setup
+  hosts: k3s_cluster
   gather_facts: false
   tags: reboot
   become: true
@@ -527,39 +527,93 @@
     - never
     - remove-k3s
   tasks:
-    - name: Run K3s Uninstall script [server]
+    - name: Check for K3s server uninstall script
+      ansible.builtin.stat:
+        path: /usr/local/bin/k3s-uninstall.sh
+      register: k3s_server_uninstall_script
       when: "'server' in group_names"
+
+    - name: Check for K3s agent uninstall script
+      ansible.builtin.stat:
+        path: /usr/local/bin/k3s-agent-uninstall.sh
+      register: k3s_agent_uninstall_script
+      when: "'agent' in group_names"
+
+    - name: Check for K3s killall script
+      ansible.builtin.stat:
+        path: /usr/local/bin/k3s-killall.sh
+      register: k3s_killall_script
+
+    - name: Stop K3s runtime processes and mounts
       ansible.builtin.command:
-        cmd: k3s-uninstall.sh
-        removes: /var/lib/rancher/k3s/*
+        cmd: /usr/local/bin/k3s-killall.sh
+      when: k3s_killall_script.stat.exists
+      changed_when: true
+
+    - name: Stop K3s services before removing partial state
+      ansible.builtin.systemd_service:
+        name: "{{ item }}"
+        state: stopped
+        enabled: false
+      loop:
+        - k3s
+        - k3s-agent
+      failed_when: false
+
+    - name: Run K3s Uninstall script [server]
+      when:
+        - "'server' in group_names"
+        - k3s_server_uninstall_script.stat.exists
+      ansible.builtin.command:
+        cmd: /usr/local/bin/k3s-uninstall.sh
+        removes: /usr/local/bin/k3s-uninstall.sh
 
     - name: Run K3s Uninstall script [agent]
-      when: "'agent' in group_names"
+      when:
+        - "'agent' in group_names"
+        - k3s_agent_uninstall_script.stat.exists
       ansible.builtin.command:
-        cmd: k3s-agent-uninstall.sh
-        removes: /var/lib/rancher/k3s/*
+        cmd: /usr/local/bin/k3s-agent-uninstall.sh
+        removes: /usr/local/bin/k3s-agent-uninstall.sh
 
     - name: Remove user kubeconfig
       ansible.builtin.file:
         path: "~{{ ansible_user }}/.kube/config"
         state: absent
 
-    - name: Remove k3s install script
+    - name: Remove K3s installers, binaries, and service files
       ansible.builtin.file:
-        path: /usr/local/bin/k3s-install.sh
+        path: "{{ item }}"
         state: absent
+      loop:
+        - /usr/local/bin/k3s-install.sh
+        - /usr/local/bin/k3s
+        - /usr/local/bin/kubectl
+        - /usr/local/bin/crictl
+        - /usr/local/bin/ctr
+        - /usr/local/bin/k3s-killall.sh
+        - /usr/local/bin/k3s-uninstall.sh
+        - /usr/local/bin/k3s-agent-uninstall.sh
+        - /etc/systemd/system/k3s.service
+        - /etc/systemd/system/k3s.service.env
+        - /etc/systemd/system/k3s-agent.service
+        - /etc/systemd/system/k3s-agent.service.env
 
-    - name: Remove contents of K3s server location
-      when: k3s_server_location is defined
-      ansible.builtin.shell:
-        cmd: "rm -rf {{ k3s_server_location }}/*"
-        removes: "{{ k3s_server_location }}/*"
-
-    - name: Remove K3s config
-      when: server_config_yaml is defined
+    - name: Remove K3s, CNI, and Longhorn state
       ansible.builtin.file:
-        path: /etc/rancher/k3s/config.yaml
+        path: "{{ item }}"
         state: absent
+      loop:
+        - /etc/rancher/k3s
+        - /var/lib/rancher/k3s
+        - /var/lib/kubelet
+        - /var/lib/cni
+        - /etc/cni/net.d
+        - /var/lib/longhorn
+
+    - name: Reload systemd after removing K3s service files
+      ansible.builtin.systemd_service:
+        daemon_reload: true
 
 - name: Undo user setup
   hosts: server

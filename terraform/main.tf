@@ -106,6 +106,22 @@ resource "oci_core_security_list" "main" {
     }
   }
 
+  # Allow WireGuard VPN port, only from trusted CIDRs
+  dynamic "ingress_security_rules" {
+    for_each = var.trusted_cidrs
+    iterator = cidr
+
+    content {
+      protocol = "17" # UDP
+      source   = cidr.value
+
+      udp_options {
+        min = 30021
+        max = 30021
+      }
+    }
+  }
+
   # Allow all traffic within VCN (for internal node communication)
   ingress_security_rules {
     protocol = "all"
@@ -141,7 +157,6 @@ resource "oci_core_subnet" "public" {
 
 locals {
   availability_domain = data.oci_identity_availability_domains.all.availability_domains[0].name
-  ubuntu_image_id     = data.oci_core_images.ubuntu_24_04.images[0].id
   ssh_public_key      = file(pathexpand(var.ssh_public_key_path))
 }
 
