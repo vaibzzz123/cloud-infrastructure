@@ -30,6 +30,16 @@ data:
             reverse_proxy 10.90.0.2:4567
         }
 
+        @grimmory host grimmory.vabkapoor.com
+        handle @grimmory {
+            reverse_proxy 10.90.0.2:6060
+        }
+
+        @romm host romm.vabkapoor.com
+        handle @romm {
+            reverse_proxy 10.90.0.2:8040
+        }
+
         handle {
             respond "Hello World" 200
         }

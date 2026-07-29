@@ -48,10 +48,32 @@ spec:
             name: caddy-service
             port:
               number: 80
+  - host: grimmory.vabkapoor.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: caddy-service
+            port:
+              number: 80
+  - host: romm.vabkapoor.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: caddy-service
+            port:
+              number: 80
   tls:
   - hosts:
     - jellyfin.vabkapoor.com
     - immich.vabkapoor.com
     - seanime.vabkapoor.com
     - suwayomi.vabkapoor.com
+    - grimmory.vabkapoor.com
+    - romm.vabkapoor.com
     secretName: vabkapoor-com-tls
