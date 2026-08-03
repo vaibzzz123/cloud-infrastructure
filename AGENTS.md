@@ -34,7 +34,7 @@ Primary workflow:
 - Traefik is the expected ingress controller unless explicitly disabled during k3s install.
 - Longhorn is the default `StorageClass` for PVCs.
 - cert-manager handles ACME and Let's Encrypt certificates via the `letsencrypt-production` `ClusterIssuer`.
-- The Caddy stack is a single-replica Deployment with a two-container Pod: `caddy` and `netbird`.
+- The Caddy stack is a single-replica Deployment with a two-container Pod: `caddy` and `wireguard`.
 - Sensitive values should stay either in ansible-vault files or Sealed Secrets, not in plain YAML.
 
 ## Docs And External References
