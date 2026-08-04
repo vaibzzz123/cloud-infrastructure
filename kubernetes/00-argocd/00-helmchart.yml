@@ -1,0 +1,17 @@
+apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  name: argocd
+  namespace: kube-system # namespace of the HelmChart resource, not the namespace where ArgoCD will be installed
+spec:
+  repo: https://argoproj.github.io/argo-helm
+  chart: argo-cd
+  version: 10.2.2 # v3.4.6 of ArgoCD
+  targetNamespace: argocd
+  createNamespace: true
+  # equivalent to values.yml file
+  # server.insecure is required so Traefik can terminate TLS and ArgoCD can be accessed via HTTP
+  valuesContent: |-
+    configs:
+      params:
+        server.insecure: true
