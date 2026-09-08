@@ -112,6 +112,10 @@ encrypt_group_vars() {
   (cd "$ansible_dir" && ./encrypt.sh)
 }
 
+install_ansible_requirements() {
+  (cd "$ansible_dir" && ansible-galaxy collection install -r requirements.yml)
+}
+
 read_trusted_cidrs_from_terraform() {
   if ! command -v terraform >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1; then
     return 1
@@ -275,6 +279,7 @@ write_cluster_secrets_if_needed() {
 
 require ansible-vault
 require ansible-playbook
+require ansible-galaxy
 require openssl
 
 if [[ ! -f "$input_file" ]]; then
@@ -348,6 +353,8 @@ fi
 encrypt_group_vars
 
 if confirm "Apply ansible/playbook.yml now?"; then
+  install_ansible_requirements
+
   ansible-playbook \
     --vault-password-file "$vault_password_file" \
     -i "$ansible_dir/inventory.yml" \
