@@ -1,0 +1,95 @@
+---
+- name: Replace trusted public CIDRs for the k3s API
+  hosts: server
+  gather_facts: false
+  become: true
+  tags:
+    - trusted-cidr-update
+  tasks:
+    - name: Validate current trusted CIDRs
+      ansible.builtin.assert:
+        that:
+          - k3s_api_trusted_cidrs is defined
+          - k3s_api_trusted_cidrs | length > 0
+        fail_msg: "Set k3s_api_trusted_cidrs in group_vars/all/secrets.yml."
+        quiet: true
+
+    - name: Read current iptables rules
+      ansible.builtin.command: iptables-save
+      register: k3s_api_iptables_rules
+      changed_when: false
+      check_mode: false
+
+    - name: Identify previously managed trusted CIDRs
+      ansible.builtin.set_fact:
+        k3s_api_managed_trusted_cidrs: >-
+          {{ k3s_api_iptables_rules.stdout
+             | regex_findall('--comment "Allow k3s API from trusted public CIDR ([^"]+)"')
+             | unique
+             | list }}
+
+    - name: Allow k3s API access from current trusted public CIDRs
+      ansible.builtin.iptables:
+        chain: INPUT
+        protocol: tcp
+        source: "{{ item }}"
+        destination_port: "6443"
+        jump: ACCEPT
+        action: insert
+        rule_num: 1
+        comment: "Allow k3s API from trusted public CIDR {{ item }}"
+        state: present
+      loop: "{{ k3s_api_trusted_cidrs }}"
+      notify: Save iptables rules
+
+    - name: Remove obsolete k3s API trusted public CIDRs
+      ansible.builtin.iptables:
+        chain: INPUT
+        protocol: tcp
+        source: "{{ item }}"
+        destination_port: "6443"
+        jump: ACCEPT
+        comment: "Allow k3s API from trusted public CIDR {{ item }}"
+        state: absent
+      loop: "{{ k3s_api_managed_trusted_cidrs | difference(k3s_api_trusted_cidrs) }}"
+      notify: Save iptables rules
+
+  handlers:
+    - name: Save iptables rules
+      ansible.builtin.command: netfilter-persistent save
+      changed_when: true
+
+- name: Update Fail2Ban trusted CIDRs on all k3s nodes
+  hosts: k3s_cluster
+  gather_facts: false
+  become: true
+  tags:
+    - trusted-cidr-update
+  tasks:
+    - name: Validate current trusted CIDRs
+      ansible.builtin.assert:
+        that:
+          - k3s_api_trusted_cidrs is defined
+          - k3s_api_trusted_cidrs | length > 0
+        fail_msg: "Set k3s_api_trusted_cidrs in group_vars/all/secrets.yml."
+        quiet: true
+
+    - name: Update Fail2Ban SSH ignore list
+      ansible.builtin.lineinfile:
+        path: /etc/fail2ban/jail.d/sshd.local
+        regexp: '^ignoreip\s*='
+        line: "ignoreip = {{ fail2ban_ignore_cidrs | join(' ') }}"
+      notify:
+        - Validate fail2ban config
+        - Restart fail2ban
+
+  handlers:
+    - name: Validate fail2ban config
+      ansible.builtin.command:
+        cmd: fail2ban-client -t
+      changed_when: false
+
+    - name: Restart fail2ban
+      ansible.builtin.systemd_service:
+        name: fail2ban
+        state: restarted

@@ -58,6 +58,8 @@ Then once those are installed, [generate an SSH key](https://docs.github.com/en/
 
 Now that the tfvars file is setup, you can run the `scripts/00-terraform-apply-and-output.sh` script. This is a thin wrapper around the Terraform CLI, that checks for dependencies, makes sure the tfvars file is filled, provisions the nodes and the network infrastructure on OCI, and creates an intermediary file based off of the TF output for use in later steps. Confirm that the resources being provisioned look good, and it will create those, and then move intermediary values into `.local/terraform-outputs.env`. The console output of the script will also contain commands to SSH into the nodes, their ip addresses and more. The generated `.local/terraform-otuputs.env` file will contain information like the IP addresses of the nodes, private SSH key path and more.
 
+If the trusted public CIDRs change, update `terraform/terraform.tfvars` with the new CIDRs, then run `tf apply` to update the Security List. Follow further steps in part 4 below for changing the CIDRs for the Ansible playbook.
+
 ### 4. Configuring the Nodes
 
 Now that the nodes are running, ssh into each of them, typing yes on the dialogue about unknown fingerprint and if you're sure you want to connect. **This is a vital step for Ansible to work correctly**, otherwise it will hang when trying to connect to the nodes. I'd also recommend modifying your `~/.ssh/config` file and adding this to have host aliases to get convenient access to the nodes:
@@ -93,6 +95,19 @@ This will allow you to use commands like `ssh k3s-server` to make things easier 
 Once you've confirmed you're able to SSH into the nodes, run the `scripts/01-ansible-prepare-and-apply.sh` script. This script does many different things: It will get the intermediary values from the previous script, check dependencies, create an Ansible Vault password file if it doesn't exist, encrypt/decrypt the Ansible Vault and secret files, load them with values, and finally run the Ansible Playbook. It's interactive and will ask your permissions for steps along the way.
 
 This will take a couple minutes, but if successful, the k3s cluster will be up, NetBird will be installed and running, firewall will be configured and hardened, fail2ban installed, and more. Try running `k get node -o wide` to check the status of the nodes.
+
+If the trusted public CIDRs change later, update `k3s_api_trusted_cidrs` in
+`ansible/group_vars/all/secrets.yml`, apply the matching Terraform change first,
+then replace the host firewall rule from the `ansible/` directory:
+
+```bash
+ansible-playbook -i inventory.yml --vault-password-file group_vars/.vault_password playbooks/05-trusted-cidr-updates.yml
+```
+
+The update playbook discovers previously managed firewall rules by their
+comments, adds every current trusted CIDR, and then removes obsolete rules,
+preserving API access during the change. It also replaces Fail2Ban's SSH
+`ignoreip` list on every k3s node with the current trusted CIDRs.
 
 ### 5. Applying Kubernetes Manifests
 
