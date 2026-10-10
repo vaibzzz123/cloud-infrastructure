@@ -106,19 +106,14 @@ resource "oci_core_security_list" "main" {
     }
   }
 
-  # Allow WireGuard VPN port, only from trusted CIDRs
-  dynamic "ingress_security_rules" {
-    for_each = var.trusted_cidrs
-    iterator = cidr
+  # Allow WireGuard VPN port from everywhere
+  ingress_security_rules {
+    protocol = "17" # UDP
+    source   = "0.0.0.0/0"
 
-    content {
-      protocol = "17" # UDP
-      source   = cidr.value
-
-      udp_options {
-        min = 30021
-        max = 30021
-      }
+    udp_options {
+      min = 30021
+      max = 30021
     }
   }
 
