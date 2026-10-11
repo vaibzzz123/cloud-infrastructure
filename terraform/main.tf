@@ -151,8 +151,9 @@ resource "oci_core_subnet" "public" {
 # =============================================================================
 
 locals {
-  availability_domain = data.oci_identity_availability_domains.all.availability_domains[0].name
-  ssh_public_key      = file(pathexpand(var.ssh_public_key_path))
+  availability_domain           = data.oci_identity_availability_domains.all.availability_domains[0].name
+  ssh_public_key                = file(pathexpand(var.ssh_public_key_path))
+  uptime_monitor_ssh_public_key = file(pathexpand(var.uptime_monitor_ssh_public_key_path))
 }
 
 # k3s Server Node
@@ -213,5 +214,31 @@ resource "oci_core_instance" "k3s_agent" {
 
   metadata = {
     ssh_authorized_keys = local.ssh_public_key
+  }
+}
+
+# Standalone uptime monitor using the separate Always Free AMD micro allowance.
+# Its 50 GB boot volume brings total Always Free block storage usage to 200 GB.
+resource "oci_core_instance" "uptime_monitor" {
+  compartment_id       = var.compartment_ocid
+  availability_domain  = local.availability_domain
+  display_name         = "uptime-monitor"
+  shape                = "VM.Standard.E2.1.Micro"
+
+  source_details {
+    source_type             = "image"
+    source_id               = local.uptime_monitor_image_id
+    boot_volume_size_in_gbs = var.boot_volume_size_gb
+  }
+
+  create_vnic_details {
+    subnet_id        = oci_core_subnet.public.id
+    assign_public_ip = true
+    display_name     = "uptime-monitor-vnic"
+    hostname_label   = "uptime-monitor"
+  }
+
+  metadata = {
+    ssh_authorized_keys = local.uptime_monitor_ssh_public_key
   }
 }

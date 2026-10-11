@@ -20,11 +20,23 @@ output "k3s_agent_private_ips" {
   value       = [for agent in oci_core_instance.k3s_agent : agent.private_ip]
 }
 
+# Uptime Monitor
+output "uptime_monitor_public_ip" {
+  description = "Public IP of the uptime monitor"
+  value       = oci_core_instance.uptime_monitor.public_ip
+}
+
+output "uptime_monitor_private_ip" {
+  description = "Private IP of the uptime monitor"
+  value       = oci_core_instance.uptime_monitor.private_ip
+}
+
 output "ssh_commands" {
   description = "SSH commands to connect to each node"
   value = concat(
     ["ssh -i ${trimsuffix(var.ssh_public_key_path, ".pub")} ubuntu@${oci_core_instance.k3s_server.public_ip}  # k3s-server"],
-    [for i, agent in oci_core_instance.k3s_agent : "ssh -i ${trimsuffix(var.ssh_public_key_path, ".pub")} ubuntu@${agent.public_ip}  # k3s-agent-${i + 1}"]
+    [for i, agent in oci_core_instance.k3s_agent : "ssh -i ${trimsuffix(var.ssh_public_key_path, ".pub")} ubuntu@${agent.public_ip}  # k3s-agent-${i + 1}"],
+    ["ssh -i ${trimsuffix(var.uptime_monitor_ssh_public_key_path, ".pub")} ubuntu@${oci_core_instance.uptime_monitor.public_ip}  # uptime-monitor"]
   )
 }
 

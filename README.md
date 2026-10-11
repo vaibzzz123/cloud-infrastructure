@@ -1,6 +1,6 @@
 # Cloud Infrastructure
 
-A reproducible three-node k3s platform on OCI free tier. Provisioned with Terraform, configured and hardened with Ansible, then exposes specific homelab services via a VPN gateway. This repo contains all the manifest files, scripts, and more required for this.
+A reproducible three-node k3s platform and standalone uptime monitor on OCI free tier. Provisioned with Terraform, configured and hardened with Ansible, then exposes specific homelab services via a VPN gateway. This repo contains all the manifest files, scripts, and more required for this.
 
 ![Network Architecture](docs/architecture%20diagram.png)
 
@@ -25,6 +25,8 @@ This is a triple node k3s cluster, where I have one node `k3s-server` where the 
 `k3s-agent-1`, `k3s-agent-2`: 1 Ampere A1 (ARM) OCPU core, 8gb RAM
 
 They were chosen with these specs to remain with Oracle Cloud Infrastructure's free tier of 4 OCPU cores/24gb RAM spread across the nodes, while meeting the minimum requirements for k3s server/agents. The terms server/control plane node and agent/worker node are used interchangeably for k3s/Kubernetes terminology.
+
+`uptime-monitor`: `VM.Standard.E2.1.Micro` AMD VM with 1 GB RAM and a 50 GB boot volume. It uses the separate Always Free AMD micro allowance. Together, the four 50 GB boot volumes consume the full 200 GB Always Free block storage allowance.
 
 The following OCI required network resources were also created:
 
@@ -52,7 +54,7 @@ To set this all up, you'll need to install a few dependencies: The OCI CLI with 
 
 ### 2. Keys and Credentials
 
-Then once those are installed, [generate an SSH key](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent), and create the `terraform/terraform.tfvars` file based off of the example. Fill in the OCI credentials and details, as well as the path to the generated SSH key. This will be the SSH key to access every node in the cluster. Also add the list of trusted public CIDRs that can access the cluster through kubectl without needing to use the NetBird VPN.
+Then once those are installed, [generate an SSH key](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent), and create the `terraform/terraform.tfvars` file based off of the example. Fill in the OCI credentials and details, as well as the path to the generated SSH key. This will be the SSH key to access every node in the cluster. Also add the list of trusted public CIDRs that can access the cluster through kubectl without needing to use the NetBird VPN. The standalone uptime monitor uses `~/.ssh/oci_uptime_monitor.pub`; create that key pair before applying Terraform.
 
 ### 3. Provisioning the Infrastructure
 
@@ -85,6 +87,14 @@ host k3s-agent-2
   HostName <k3s-agent-2 ip>
   User ubuntu
   IdentityFile <path to private ssh key>
+  ConnectTimeout 60
+  ServerAliveInterval 60
+  ServerAliveCountMax 10
+
+host uptime-monitor
+  HostName <uptime-monitor ip>
+  User ubuntu
+  IdentityFile ~/.ssh/oci_uptime_monitor
   ConnectTimeout 60
   ServerAliveInterval 60
   ServerAliveCountMax 10

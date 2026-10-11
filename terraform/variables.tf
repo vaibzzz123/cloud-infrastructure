@@ -101,3 +101,9 @@ variable "boot_volume_size_gb" {
   type        = number
   default     = 50
 }
+
+variable "uptime_monitor_ssh_public_key_path" {
+  description = "Path to the SSH public key for the uptime monitor"
+  type        = string
+  default     = "~/.ssh/oci_uptime_monitor.pub"
+}
