@@ -12,6 +12,7 @@ all_dir="$group_vars_dir/all"
 all_file="$all_dir/main.yml"
 server_file="$group_vars_dir/server.yml"
 agent_file="$group_vars_dir/agent.yml"
+uptime_monitor_file="$group_vars_dir/uptime_monitor.yml"
 secrets_file="$all_dir/secrets.yml"
 trusted_cidrs=()
 
@@ -103,7 +104,7 @@ write_vault_password_file() {
 }
 
 decrypt_group_vars_if_needed() {
-  if is_encrypted "$all_file" || is_encrypted "$server_file" || is_encrypted "$agent_file"; then
+  if is_encrypted "$all_file" || is_encrypted "$server_file" || is_encrypted "$agent_file" || is_encrypted "$uptime_monitor_file"; then
     (cd "$ansible_dir" && ./decrypt.sh)
   fi
 }
@@ -233,8 +234,24 @@ append_trusted_cidrs_to_secrets() {
   chmod 600 "$secrets_file"
 }
 
+ensure_netbird_setup_keys() {
+  local setup_key
+
+  if ! secret_var_is_set netbird_k3s_nodes_setup_key; then
+    setup_key="$(read_required_secret 'Enter NetBird k3s nodes setup key')"
+    printf 'netbird_k3s_nodes_setup_key: "%s"\n' "$setup_key" >>"$secrets_file"
+    printf 'Added netbird_k3s_nodes_setup_key to %s\n' "$secrets_file"
+  fi
+
+  if ! secret_var_is_set netbird_uptime_monitor_setup_key; then
+    setup_key="$(read_required_secret 'Enter NetBird uptime monitor setup key')"
+    printf 'netbird_uptime_monitor_setup_key: "%s"\n' "$setup_key" >>"$secrets_file"
+    printf 'Added netbird_uptime_monitor_setup_key to %s\n' "$secrets_file"
+  fi
+}
+
 write_cluster_secrets_if_needed() {
-  local k3s_token netbird_k3s_nodes_setup_key
+  local k3s_token netbird_k3s_nodes_setup_key netbird_uptime_monitor_setup_key
 
   if is_encrypted "$secrets_file"; then
     printf '%s is encrypted. Decrypt it before updating cluster secrets.\n' "$secrets_file" >&2
@@ -247,31 +264,25 @@ write_cluster_secrets_if_needed() {
     chmod 600 "$secrets_file"
 
     if ! confirm "$secrets_file already exists. Regenerate k3s_token?"; then
-      if secret_var_is_set netbird_k3s_nodes_setup_key; then
-        printf 'Keeping existing %s\n' "$secrets_file"
-      else
-        netbird_k3s_nodes_setup_key="$(read_required_secret 'Enter NetBird k3s nodes setup key')"
-        printf 'netbird_k3s_nodes_setup_key: "%s"\n' "$netbird_k3s_nodes_setup_key" >>"$secrets_file"
-        printf 'Added netbird_k3s_nodes_setup_key to %s\n' "$secrets_file"
-      fi
+      ensure_netbird_setup_keys
       append_trusted_cidrs_to_secrets
       printf 'Updated k3s_api_trusted_cidrs in %s\n' "$secrets_file"
       return 0
     fi
 
-    if secret_var_is_set netbird_k3s_nodes_setup_key; then
-      netbird_k3s_nodes_setup_key="$(read_existing_secret_var netbird_k3s_nodes_setup_key)"
-    else
-      netbird_k3s_nodes_setup_key="$(read_required_secret 'Enter NetBird k3s nodes setup key')"
-    fi
+    ensure_netbird_setup_keys
+    netbird_k3s_nodes_setup_key="$(read_existing_secret_var netbird_k3s_nodes_setup_key)"
+    netbird_uptime_monitor_setup_key="$(read_existing_secret_var netbird_uptime_monitor_setup_key)"
   else
     netbird_k3s_nodes_setup_key="$(read_required_secret 'Enter NetBird k3s nodes setup key')"
+    netbird_uptime_monitor_setup_key="$(read_required_secret 'Enter NetBird uptime monitor setup key')"
   fi
 
   k3s_token="$(openssl rand -base64 64 | tr -d '\n')"
   {
     printf 'k3s_token: "%s"\n' "$k3s_token"
     printf 'netbird_k3s_nodes_setup_key: "%s"\n' "$netbird_k3s_nodes_setup_key"
+    printf 'netbird_uptime_monitor_setup_key: "%s"\n' "$netbird_uptime_monitor_setup_key"
   } >"$secrets_file"
   chmod 600 "$secrets_file"
   append_trusted_cidrs_to_secrets
@@ -298,7 +309,18 @@ if [[ -z "${K3S_SERVER_PUBLIC_IP:-}" || -z "${K3S_SERVER_PRIVATE_IP:-}" || -z "$
   exit 1
 fi
 
-if ! confirm "Overwrite group_vars/all/main.yml, server.yml, agent.yml, and secrets.yml with Terraform values?"; then
+uptime_monitor_values_available=false
+if [[ -n "${UPTIME_MONITOR_PUBLIC_IP:-}" && -n "${UPTIME_MONITOR_PRIVATE_IP:-}" && -n "${UPTIME_MONITOR_SSH_PRIVATE_KEY_PATH:-}" ]]; then
+  uptime_monitor_values_available=true
+  printf '\nStandalone uptime monitor:\n'
+  printf '  Public IP:  %s\n' "$UPTIME_MONITOR_PUBLIC_IP"
+  printf '  Private IP: %s\n' "$UPTIME_MONITOR_PRIVATE_IP"
+  printf '  SSH: ssh -i %q %s@%s\n' "$UPTIME_MONITOR_SSH_PRIVATE_KEY_PATH" "$ansible_user" "$UPTIME_MONITOR_PUBLIC_IP"
+else
+  printf 'Uptime monitor values are missing from %s; rerun scripts/00-terraform-apply-and-output.sh to refresh it.\n' "$input_file" >&2
+fi
+
+if ! confirm "Overwrite generated group vars and secrets with Terraform values?"; then
   printf 'Aborted.\n'
   exit 1
 fi
@@ -339,11 +361,22 @@ write_cluster_secrets_if_needed
   done
 } >"$agent_file"
 
+if [[ "$uptime_monitor_values_available" == true ]]; then
+  {
+    printf 'uptime_monitor_ansible_host: "%s"\n' "$UPTIME_MONITOR_PUBLIC_IP"
+    printf 'uptime_monitor_ansible_user: "%s"\n' "$ansible_user"
+    printf 'uptime_monitor_ansible_ssh_private_key_file: "%s"\n' "$UPTIME_MONITOR_SSH_PRIVATE_KEY_PATH"
+  } >"$uptime_monitor_file"
+fi
+
 printf '\nUpdated:\n'
 printf '  %s\n' "$all_file"
 printf '  %s\n' "$server_file"
 printf '  %s\n' "$agent_file"
 printf '  %s (gitignored)\n' "$secrets_file"
+if [[ "$uptime_monitor_values_available" == true ]]; then
+  printf '  %s\n' "$uptime_monitor_file"
+fi
 
 if ! confirm "Have you reviewed those files and want to encrypt the tracked group vars now?"; then
   printf 'Leaving group_vars decrypted for review. Run ansible/encrypt.sh when ready.\n'
@@ -359,4 +392,13 @@ if confirm "Apply ansible/playbook.yml now?"; then
     --vault-password-file "$vault_password_file" \
     -i "$ansible_dir/inventory.yml" \
     "$ansible_dir/playbook.yml"
+fi
+
+if [[ "$uptime_monitor_values_available" == true ]] && confirm "Apply ansible/playbooks/06-uptime-monitor-config.yml now?"; then
+  install_ansible_requirements
+
+  ansible-playbook \
+    --vault-password-file "$vault_password_file" \
+    -i "$ansible_dir/inventory.yml" \
+    "$ansible_dir/playbooks/06-uptime-monitor-config.yml"
 fi

@@ -1,0 +1,398 @@
+---
+- name: Configure swap on the uptime monitor
+  hosts: uptime_monitor
+  gather_facts: false
+  become: true
+  tags:
+    - swap
+  vars:
+    uptime_monitor_swap_file: /swapfile
+    uptime_monitor_swap_size_mb: 2048
+  tasks:
+    - name: Inspect swap file
+      ansible.builtin.stat:
+        path: "{{ uptime_monitor_swap_file }}"
+      register: uptime_monitor_swap_file_stat
+
+    - name: Validate existing swap file size
+      ansible.builtin.assert:
+        that:
+          - uptime_monitor_swap_file_stat.stat.size == uptime_monitor_swap_size_mb * 1024 * 1024
+        fail_msg: >-
+          {{ uptime_monitor_swap_file }} exists but is not {{ uptime_monitor_swap_size_mb }} MiB.
+          Resize or remove it before rerunning this playbook.
+        quiet: true
+      when: uptime_monitor_swap_file_stat.stat.exists
+
+    - name: Allocate swap file
+      ansible.builtin.command:
+        argv:
+          - fallocate
+          - -l
+          - "{{ uptime_monitor_swap_size_mb }}M"
+          - "{{ uptime_monitor_swap_file }}"
+        creates: "{{ uptime_monitor_swap_file }}"
+
+    - name: Restrict swap file permissions
+      ansible.builtin.file:
+        path: "{{ uptime_monitor_swap_file }}"
+        owner: root
+        group: root
+        mode: "0600"
+
+    - name: Inspect swap file signature
+      ansible.builtin.command:
+        argv:
+          - blkid
+          - -o
+          - value
+          - -s
+          - TYPE
+          - "{{ uptime_monitor_swap_file }}"
+      register: uptime_monitor_swap_signature
+      changed_when: false
+      failed_when: false
+
+    - name: Format swap file
+      ansible.builtin.command:
+        argv:
+          - mkswap
+          - "{{ uptime_monitor_swap_file }}"
+      when: uptime_monitor_swap_signature.stdout | trim != "swap"
+
+    - name: Persist swap file
+      ansible.builtin.lineinfile:
+        path: /etc/fstab
+        regexp: '^{{ uptime_monitor_swap_file | regex_escape }}\s+'
+        line: "{{ uptime_monitor_swap_file }} none swap sw 0 0"
+        owner: root
+        group: root
+        mode: "0644"
+        state: present
+
+    - name: Read active swap devices
+      ansible.builtin.command:
+        argv:
+          - swapon
+          - --show=NAME
+          - --noheadings
+      register: uptime_monitor_active_swap
+      changed_when: false
+
+    - name: Enable swap file
+      ansible.builtin.command:
+        argv:
+          - swapon
+          - "{{ uptime_monitor_swap_file }}"
+      when: uptime_monitor_swap_file not in uptime_monitor_active_swap.stdout_lines
+
+    - name: Configure conservative swap usage
+      ansible.builtin.copy:
+        dest: /etc/sysctl.d/99-uptime-monitor-swap.conf
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          vm.swappiness=10
+      notify: Apply sysctl settings
+
+  handlers:
+    - name: Apply sysctl settings
+      ansible.builtin.command: sysctl --system
+      changed_when: true
+
+- name: Update packages on the uptime monitor
+  hosts: uptime_monitor
+  gather_facts: false
+  become: true
+  tags:
+    - packages
+  tasks:
+    - name: Update and upgrade packages
+      ansible.builtin.apt:
+        update_cache: true
+        upgrade: dist
+        lock_timeout: 600
+
+- name: Install Docker on the uptime monitor
+  hosts: uptime_monitor
+  gather_facts: true
+  become: true
+  tags:
+    - docker
+  vars:
+    docker_apt_key_path: /etc/apt/keyrings/docker.asc
+    docker_apt_source_path: /etc/apt/sources.list.d/docker.sources
+  tasks:
+    - name: Remove conflicting Docker packages
+      ansible.builtin.apt:
+        name:
+          - containerd
+          - docker-compose
+          - docker-compose-v2
+          - docker-doc
+          - docker.io
+          - podman-docker
+          - runc
+        state: absent
+        lock_timeout: 600
+
+    - name: Install Docker and repository prerequisites
+      ansible.builtin.apt:
+        name:
+          - ca-certificates
+          - curl
+          - gnupg
+          - python3-apt
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+        lock_timeout: 600
+
+    - name: Create apt keyring directory
+      ansible.builtin.file:
+        path: /etc/apt/keyrings
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Install Docker apt signing key
+      ansible.builtin.get_url:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        dest: "{{ docker_apt_key_path }}"
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Configure Docker apt repository
+      ansible.builtin.copy:
+        dest: "{{ docker_apt_source_path }}"
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          Types: deb
+          URIs: https://download.docker.com/linux/ubuntu
+          Suites: {{ ansible_distribution_release }}
+          Components: stable
+          Signed-By: {{ docker_apt_key_path }}
+      register: uptime_monitor_docker_repository
+
+    - name: Refresh apt cache for Docker repository
+      ansible.builtin.apt:
+        update_cache: true
+        lock_timeout: 600
+      when: uptime_monitor_docker_repository.changed
+
+    - name: Install Docker Engine
+      ansible.builtin.apt:
+        name:
+          - containerd.io
+          - docker-buildx-plugin
+          - docker-ce
+          - docker-ce-cli
+          - docker-compose-plugin
+        state: present
+        lock_timeout: 600
+
+    - name: Enable and start Docker
+      ansible.builtin.systemd_service:
+        name: docker
+        enabled: true
+        state: started
+
+    - name: Verify Docker daemon
+      ansible.builtin.command: docker info
+      changed_when: false
+
+- name: Install and connect NetBird on the uptime monitor
+  hosts: uptime_monitor
+  gather_facts: false
+  become: true
+  tags:
+    - netbird
+  tasks:
+    - name: Ensure NetBird setup key is configured
+      ansible.builtin.assert:
+        that:
+          - netbird_uptime_monitor_setup_key is defined
+          - netbird_uptime_monitor_setup_key | default("") | length > 0
+        fail_msg: >-
+          Set netbird_uptime_monitor_setup_key in
+          ansible/group_vars/all/secrets.yml before running this playbook.
+        quiet: true
+      no_log: true
+
+    - name: Install NetBird repository prerequisites
+      ansible.builtin.apt:
+        name:
+          - ca-certificates
+          - gnupg
+          - python3-apt
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+        lock_timeout: 600
+
+    - name: Install NetBird apt signing key
+      ansible.builtin.get_url:
+        url: https://pkgs.netbird.io/debian/public.key
+        dest: /usr/share/keyrings/netbird.asc
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Configure NetBird apt repository
+      ansible.builtin.apt_repository:
+        repo: >-
+          deb [signed-by=/usr/share/keyrings/netbird.asc]
+          https://pkgs.netbird.io/debian stable main
+        filename: netbird
+        state: present
+        update_cache: true
+
+    - name: Install NetBird
+      ansible.builtin.apt:
+        name: netbird
+        state: present
+        lock_timeout: 600
+
+    - name: Check whether NetBird service is installed
+      ansible.builtin.command:
+        cmd: systemctl cat netbird.service
+      register: uptime_monitor_netbird_service_unit
+      changed_when: false
+      failed_when: false
+
+    - name: Install NetBird service
+      ansible.builtin.command:
+        cmd: netbird service install
+      when: uptime_monitor_netbird_service_unit.rc != 0
+
+    - name: Enable and start NetBird
+      ansible.builtin.systemd_service:
+        name: netbird
+        enabled: true
+        state: started
+        daemon_reload: true
+
+    - name: Check whether NetBird is already enrolled
+      ansible.builtin.stat:
+        path: /var/lib/netbird/config.json
+      register: uptime_monitor_netbird_config
+
+    - name: Connect uptime monitor to NetBird
+      ansible.builtin.command:
+        argv:
+          - netbird
+          - up
+          - --setup-key
+          - "{{ netbird_uptime_monitor_setup_key }}"
+          - --hostname
+          - "{{ inventory_hostname }}"
+      when: not uptime_monitor_netbird_config.stat.exists
+      no_log: true
+
+- name: Configure the uptime monitor firewall
+  hosts: uptime_monitor
+  gather_facts: false
+  become: true
+  tags:
+    - firewall
+  vars:
+    uptime_monitor_netbird_interface: wt0
+  tasks:
+
+    - name: Install persistent iptables support
+      ansible.builtin.apt:
+        name:
+          - iptables
+          - iptables-persistent
+          - netfilter-persistent
+        state: present
+        lock_timeout: 600
+
+    - name: Allow established inbound connections
+      ansible.builtin.iptables:
+        chain: INPUT
+        ctstate:
+          - ESTABLISHED
+          - RELATED
+        jump: ACCEPT
+        action: insert
+        rule_num: 1
+        comment: Allow established inbound connections
+      notify: Save iptables rules
+
+    - name: Allow loopback traffic
+      ansible.builtin.iptables:
+        chain: INPUT
+        in_interface: lo
+        jump: ACCEPT
+        action: insert
+        rule_num: 1
+        comment: Allow loopback traffic
+      notify: Save iptables rules
+
+    - name: Allow SSH administration
+      ansible.builtin.iptables:
+        chain: INPUT
+        protocol: tcp
+        destination_port: "22"
+        ctstate:
+          - NEW
+        jump: ACCEPT
+        action: insert
+        rule_num: 1
+        comment: Allow SSH administration
+      notify: Save iptables rules
+
+    - name: Allow inbound traffic from NetBird
+      ansible.builtin.iptables:
+        chain: INPUT
+        in_interface: "{{ uptime_monitor_netbird_interface }}"
+        jump: ACCEPT
+        action: insert
+        rule_num: 1
+        comment: Allow services over NetBird
+      notify: Save iptables rules
+
+    - name: Allow ICMP
+      ansible.builtin.iptables:
+        chain: INPUT
+        protocol: icmp
+        jump: ACCEPT
+        action: insert
+        rule_num: 1
+        comment: Allow ICMP
+      notify: Save iptables rules
+
+    - name: Allow DHCP lease responses
+      ansible.builtin.iptables:
+        chain: INPUT
+        protocol: udp
+        source_port: "67"
+        destination_port: "68"
+        jump: ACCEPT
+        action: insert
+        rule_num: 1
+        comment: Allow DHCP lease responses
+      notify: Save iptables rules
+
+    - name: Deny unmatched inbound traffic
+      ansible.builtin.iptables:
+        chain: INPUT
+        policy: DROP
+      notify: Save iptables rules
+
+    - name: Allow outbound traffic
+      ansible.builtin.iptables:
+        chain: OUTPUT
+        policy: ACCEPT
+      notify: Save iptables rules
+
+  handlers:
+    - name: Save iptables rules
+      ansible.builtin.command: netfilter-persistent save
+      changed_when: true

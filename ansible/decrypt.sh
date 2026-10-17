@@ -5,18 +5,22 @@ vault_files=(
   group_vars/all/main.yml
   group_vars/server.yml
   group_vars/agent.yml
+  group_vars/uptime_monitor.yml
 )
 
-existing_files=()
+encrypted_files=()
 for file in "${vault_files[@]}"; do
   if [[ -f "$file" ]]; then
-    existing_files+=("$file")
+    IFS= read -r first_line <"$file" || true
+    if [[ "$first_line" == '$ANSIBLE_VAULT;'* ]]; then
+      encrypted_files+=("$file")
+    fi
   fi
 done
 
-if (( ${#existing_files[@]} == 0 )); then
-  printf 'No vault files found to decrypt.\n' >&2
-  exit 1
+if (( ${#encrypted_files[@]} == 0 )); then
+  printf 'All existing vault files are already decrypted.\n'
+  exit 0
 fi
 
-ansible-vault decrypt "${existing_files[@]}" --vault-password-file group_vars/.vault_password
+ansible-vault decrypt "${encrypted_files[@]}" --vault-password-file group_vars/.vault_password

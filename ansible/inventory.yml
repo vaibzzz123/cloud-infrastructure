@@ -80,6 +80,14 @@ k3s_cluster:
     #   YAML here will be placed as the content of /etc/rancher/k3s/registries.yaml
     #   See https://docs.k3s.io/installation/private-registry
 
+uptime_monitor:
+  hosts:
+    uptime-monitor:
+      ansible_host: "{{ uptime_monitor_ansible_host }}"
+      ansible_user: "{{ uptime_monitor_ansible_user }}"
+      ansible_ssh_private_key_file: "{{ uptime_monitor_ansible_ssh_private_key_file }}"
+
+
 homeservers:
   hosts:
     homeserver:

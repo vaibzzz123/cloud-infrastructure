@@ -37,9 +37,13 @@ outputs="$(terraform -chdir="$terraform_dir" output -json)"
 mkdir -p "$(dirname "$output_file")"
 
 public_key_path="$(terraform -chdir="$terraform_dir" console <<<"var.ssh_public_key_path" | tr -d '"')"
+uptime_monitor_public_key_path="$(terraform -chdir="$terraform_dir" console <<<"var.uptime_monitor_ssh_public_key_path" | tr -d '"')"
 server_public_ip="$(jq -r '.k3s_server_public_ip.value' <<<"$outputs")"
 server_private_ip="$(jq -r '.k3s_server_private_ip.value' <<<"$outputs")"
+uptime_monitor_public_ip="$(jq -r '.uptime_monitor_public_ip.value' <<<"$outputs")"
+uptime_monitor_private_ip="$(jq -r '.uptime_monitor_private_ip.value' <<<"$outputs")"
 ssh_private_key_path="$(derive_private_key_path "$public_key_path")"
+uptime_monitor_ssh_private_key_path="$(derive_private_key_path "$uptime_monitor_public_key_path")"
 agent_count="$(jq -r '.k3s_agent_public_ips.value | length' <<<"$outputs")"
 
 {
@@ -47,6 +51,10 @@ agent_count="$(jq -r '.k3s_agent_public_ips.value | length' <<<"$outputs")"
   printf 'K3S_SERVER_PRIVATE_IP=%s\n' "$(quote_env "$server_private_ip")"
   printf 'K3S_AGENT_COUNT=%s\n' "$(quote_env "$agent_count")"
   printf 'SSH_PRIVATE_KEY_PATH=%s\n' "$(quote_env "$ssh_private_key_path")"
+  printf 'UPTIME_MONITOR_PUBLIC_IP=%s\n' "$(quote_env "$uptime_monitor_public_ip")"
+  printf 'UPTIME_MONITOR_PRIVATE_IP=%s\n' "$(quote_env "$uptime_monitor_private_ip")"
+  printf 'UPTIME_MONITOR_SSH_PRIVATE_KEY_PATH=%s\n' "$(quote_env "$uptime_monitor_ssh_private_key_path")"
+
 
   for ((i = 0; i < agent_count; i++)); do
     agent_number="$((i + 1))"

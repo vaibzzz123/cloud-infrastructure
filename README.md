@@ -8,7 +8,7 @@ This repo has three main parts:
 
 `terraform/`: The Terraform manifest files for provisioning the network infrastructure on Oracle Cloud (OCI). This includes providers for OCI, compute instances, virtual cloud network, security lists, subnets, and more. On top of that it has various useful Terraform outputs like IP addresses for nodes, trusted CIDRs, and more.
 
-`ansible/`: The Ansible playbook files for configuring the VMs once provisioned. This includes setting up important dependencies, backup/restore, installing/configuring k3s, and more. There is also an Ansible vault with encrypted data, some scripts to copy to the machines, Ansible inventory, and a few helper scripts to encrypt/decrypt the vault.
+`ansible/`: The Ansible playbook files for configuring the VMs once provisioned. This includes setting up important dependencies, backup/restore, installing/configuring k3s, and preparing the standalone uptime monitor with swap, Docker, NetBird, and iptables. There is also an Ansible vault with encrypted data, some scripts to copy to the machines, Ansible inventory, and helper scripts to encrypt/decrypt the vault.
 
 `kubernetes/`: Kubernetes manifest files for the various things I want to run on the k3s cluster, including important dependencies like SealedSecret, cert-manager, Longhorn, and more. The main thing running on this right now is the Caddy reverse proxy exposing services on my homelab via a WireGuard VPN container running in the same Pod. Will eventually add ArgoCD for the full GitOps setup, and deploy my personal website, observability stack and more on this cluster.
 
@@ -44,7 +44,7 @@ At the Security List level, I've chosen to deliberately expose ports 22, 80, and
 
 ### Firewall
 
-Using iptables, I configured the firewall carefully to only expose what's needed. Kubelet metrics (TCP port 10250) is exposed to cluster CIDRs, Flannel VXLAN (UDP port 8472) exposed to cluster CIDRs, and the Kubernetes API (TCP port 6443) exposed to cluster CIDRs as well as trusted public CIDRs. Then ports 22, 80, and 443 are open publicly.
+Using iptables, I configured the firewalls carefully to only expose what's needed. On the k3s nodes, Kubelet metrics (TCP port 10250) is exposed to cluster CIDRs, Flannel VXLAN (UDP port 8472) is exposed to cluster CIDRs, and the Kubernetes API (TCP port 6443) is exposed to cluster CIDRs and trusted public CIDRs. The uptime monitor permits established connections, loopback, SSH, ICMP, and inbound traffic over its NetBird `wt0` interface, then applies a default-deny INPUT policy. Rules are persisted with `netfilter-persistent`. Docker-published ports traverse Docker's forwarding chains rather than the host INPUT chain, so containers must use deliberate bind addresses or separately managed `DOCKER-USER` policy.
 
 ## Setup Instructions
 
@@ -54,11 +54,11 @@ To set this all up, you'll need to install a few dependencies: The OCI CLI with 
 
 ### 2. Keys and Credentials
 
-Then once those are installed, [generate an SSH key](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent), and create the `terraform/terraform.tfvars` file based off of the example. Fill in the OCI credentials and details, as well as the path to the generated SSH key. This will be the SSH key to access every node in the cluster. Also add the list of trusted public CIDRs that can access the cluster through kubectl without needing to use the NetBird VPN. The standalone uptime monitor uses `~/.ssh/oci_uptime_monitor.pub`; create that key pair before applying Terraform.
+Then once those are installed, [generate an SSH key](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent), and create the `terraform/terraform.tfvars` file based off of the example. Fill in the OCI credentials and details, as well as the path to the generated SSH key. This will be the SSH key to access every node in the cluster. Also add the list of trusted public CIDRs that can access the cluster through kubectl without needing to use the NetBird VPN. The standalone uptime monitor uses `~/.ssh/oci_uptime_monitor.pub`; create that key pair before applying Terraform. Create a separate NetBird setup key for the uptime monitor; the Ansible helper prompts for it and stores it as `netbird_uptime_monitor_setup_key` in the local, gitignored secrets file.
 
 ### 3. Provisioning the Infrastructure
 
-Now that the tfvars file is setup, you can run the `scripts/00-terraform-apply-and-output.sh` script. This is a thin wrapper around the Terraform CLI, that checks for dependencies, makes sure the tfvars file is filled, provisions the nodes and the network infrastructure on OCI, and creates an intermediary file based off of the TF output for use in later steps. Confirm that the resources being provisioned look good, and it will create those, and then move intermediary values into `.local/terraform-outputs.env`. The console output of the script will also contain commands to SSH into the nodes, their ip addresses and more. The generated `.local/terraform-otuputs.env` file will contain information like the IP addresses of the nodes, private SSH key path and more.
+Now that the tfvars file is setup, you can run the `scripts/00-terraform-apply-and-output.sh` script. This is a thin wrapper around the Terraform CLI that checks dependencies, provisions the nodes and network infrastructure on OCI, and creates an intermediary file from the Terraform outputs. Confirm that the resources being provisioned look correct before applying. The generated `.local/terraform-outputs.env` contains the k3s and uptime-monitor public/private IP addresses and their private SSH key paths.
 
 If the trusted public CIDRs change, update `terraform/terraform.tfvars` with the new CIDRs, then run `tf apply` to update the Security List. Follow further steps in part 4 below for changing the CIDRs for the Ansible playbook.
 
@@ -102,9 +102,26 @@ host uptime-monitor
 
 This will allow you to use commands like `ssh k3s-server` to make things easier for yourself, but isn't explicitly necessary.
 
-Once you've confirmed you're able to SSH into the nodes, run the `scripts/01-ansible-prepare-and-apply.sh` script. This script does many different things: It will get the intermediary values from the previous script, check dependencies, create an Ansible Vault password file if it doesn't exist, encrypt/decrypt the Ansible Vault and secret files, load them with values, and finally run the Ansible Playbook. It's interactive and will ask your permissions for steps along the way.
+Once you've confirmed you're able to SSH into the nodes, run the `scripts/01-ansible-prepare-and-apply.sh` script. It loads the generated Terraform values, creates the k3s and uptime-monitor group variables, prompts for separate NetBird setup keys, updates the local, gitignored secrets file, and encrypts the tracked generated group-variable files with Ansible Vault. It then offers separate prompts to apply the k3s playbook and `ansible/playbooks/06-uptime-monitor-config.yml`.
 
-This will take a couple minutes, but if successful, the k3s cluster will be up, NetBird will be installed and running, firewall will be configured and hardened, fail2ban installed, and more. Try running `k get node -o wide` to check the status of the nodes.
+The uptime-monitor playbook creates and enables a 2 GiB swap file with low swappiness, performs a distribution package upgrade, installs Docker Engine and Compose from Docker's official Ubuntu repository, enrolls the host in NetBird, and configures persistent iptables rules for SSH, NetBird, ICMP, and default-deny inbound host traffic. It does not deploy Uptime Kuma or any other container yet.
+
+To run only the uptime-monitor configuration after its generated group variables and secrets exist:
+
+```bash
+cd ansible
+ansible-galaxy collection install -r requirements.yml
+ansible-playbook -i inventory.yml --vault-password-file group_vars/.vault_password playbooks/06-uptime-monitor-config.yml
+```
+
+The playbook is separated into independently tagged plays: `swap`, `packages`,
+`docker`, `netbird`, and `firewall`. For example, rerun only Docker setup with:
+
+```bash
+ansible-playbook -i inventory.yml --vault-password-file group_vars/.vault_password playbooks/06-uptime-monitor-config.yml --tags docker
+```
+
+After both playbooks complete, verify the k3s cluster with `kubectl get nodes -o wide` and verify the standalone host with `ansible uptime_monitor -i inventory.yml --vault-password-file group_vars/.vault_password -m ping`.
 
 If the trusted public CIDRs change later, update `k3s_api_trusted_cidrs` in
 `ansible/group_vars/all/secrets.yml`, apply the matching Terraform change first,
