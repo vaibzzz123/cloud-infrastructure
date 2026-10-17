@@ -104,7 +104,7 @@ This will allow you to use commands like `ssh k3s-server` to make things easier 
 
 Once you've confirmed you're able to SSH into the nodes, run the `scripts/01-ansible-prepare-and-apply.sh` script. It loads the generated Terraform values, creates the k3s and uptime-monitor group variables, prompts for separate NetBird setup keys, updates the local, gitignored secrets file, and encrypts the tracked generated group-variable files with Ansible Vault. It then offers separate prompts to apply the k3s playbook and `ansible/playbooks/06-uptime-monitor-config.yml`.
 
-The uptime-monitor playbook creates and enables a 2 GiB swap file with low swappiness, performs a distribution package upgrade, installs Docker Engine and Compose from Docker's official Ubuntu repository, enrolls the host in NetBird, and configures persistent iptables rules for SSH, NetBird, ICMP, and default-deny inbound host traffic. It does not deploy Uptime Kuma or any other container yet.
+The uptime-monitor playbook creates and enables a 2 GiB swap file with low swappiness, performs a distribution package upgrade, installs Docker Engine and Compose from Docker's official Ubuntu repository, enrolls the host in NetBird, and configures persistent iptables rules for SSH, NetBird, ICMP, and default-deny inbound host traffic. It also renders `ansible/templates/uptime-monitor-docker-compose.j2` into `/home/ubuntu/docker-compose-apps/compose.yaml` and starts Uptime Kuma and Caddy through Docker Compose. The path assumes the uptime-monitor SSH user is `ubuntu`. Caddy serves HTTP on host `127.0.0.1:8080` only; use an SSH tunnel for remote access. The named volume `uptime-kuma-data` holds the monitor database and needs backups.
 
 To run only the uptime-monitor configuration after its generated group variables and secrets exist:
 
@@ -114,12 +114,13 @@ ansible-galaxy collection install -r requirements.yml
 ansible-playbook -i inventory.yml --vault-password-file group_vars/.vault_password playbooks/06-uptime-monitor-config.yml
 ```
 
-The playbook is separated into independently tagged plays: `swap`, `packages`,
-`docker`, `netbird`, and `firewall`. For example, rerun only Docker setup with:
+The playbook is separated into independently tagged plays: `swap`, `packages`, `docker-install`, `docker-compose`, `netbird`, and `firewall`. For example, after Docker is installed, rerun only the application deployment with:
 
 ```bash
-ansible-playbook -i inventory.yml --vault-password-file group_vars/.vault_password playbooks/06-uptime-monitor-config.yml --tags docker
+ansible-playbook -i inventory.yml --vault-password-file group_vars/.vault_password playbooks/06-uptime-monitor-config.yml --tags docker-compose
 ```
+
+To rerun only Docker installation, use `--tags docker-install`. The directory and template tasks converge when unchanged, and Compose reports no change for an already-running project with matching configuration. Recreating stopped or modified containers, changed images, or changing the Compose file will report changes; forced restarts are not part of this play.
 
 After both playbooks complete, verify the k3s cluster with `kubectl get nodes -o wide` and verify the standalone host with `ansible uptime_monitor -i inventory.yml --vault-password-file group_vars/.vault_password -m ping`.
 

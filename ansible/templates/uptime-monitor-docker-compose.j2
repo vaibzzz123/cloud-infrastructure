@@ -1,0 +1,26 @@
+services:
+  uptime-kuma:
+    container_name: uptime-kuma
+    image: louislam/uptime-kuma:2.5.6
+    restart: unless-stopped
+    volumes:
+      - uptime-kuma-data:/app/data
+
+  caddy:
+    container_name: caddy
+    image: caddy:2.11.7
+    restart: unless-stopped
+    command:
+      - caddy
+      - reverse-proxy
+      - --from
+      - :80
+      - --to
+      - uptime-kuma:3001
+    ports:
+      - "127.0.0.1:8080:80"
+    depends_on:
+      - uptime-kuma
+
+volumes:
+  uptime-kuma-data:

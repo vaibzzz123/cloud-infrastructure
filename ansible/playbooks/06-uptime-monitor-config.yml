@@ -114,12 +114,18 @@
         upgrade: dist
         lock_timeout: 600
 
+    - name: Install ping utility
+      ansible.builtin.apt:
+        name: iputils-ping
+        state: present
+        lock_timeout: 600
+
 - name: Install Docker on the uptime monitor
   hosts: uptime_monitor
   gather_facts: true
   become: true
   tags:
-    - docker
+    - docker-install
   vars:
     docker_apt_key_path: /etc/apt/keyrings/docker.asc
     docker_apt_source_path: /etc/apt/sources.list.d/docker.sources
@@ -396,3 +402,31 @@
     - name: Save iptables rules
       ansible.builtin.command: netfilter-persistent save
       changed_when: true
+
+- name: Deploy Uptime Kuma and Caddy on the uptime monitor
+  hosts: uptime_monitor
+  gather_facts: false
+  tags:
+    - docker-compose
+  vars:
+    uptime_monitor_compose_dir: /home/ubuntu/docker-compose-apps
+  tasks:
+    - name: Create Compose project directory
+      ansible.builtin.file:
+        path: "{{ uptime_monitor_compose_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Render Compose project
+      ansible.builtin.template:
+        src: ../templates/uptime-monitor-docker-compose.j2
+        dest: "{{ uptime_monitor_compose_dir }}/compose.yaml"
+        mode: "0644"
+
+    - name: Start Uptime Kuma and Caddy
+      community.docker.docker_compose_v2:
+        project_src: "{{ uptime_monitor_compose_dir }}"
+        state: present
+        wait: true
+        wait_timeout: 120
+      become: true
