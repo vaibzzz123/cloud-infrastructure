@@ -14,13 +14,17 @@ services:
       - caddy
       - reverse-proxy
       - --from
-      - :80
+      - uptime.vabkapoor.com
       - --to
       - uptime-kuma:3001
     ports:
-      - "127.0.0.1:8080:80"
+      - "80:80"
+      - "443:443"
+    volumes:
+      - caddy-data:/data
     depends_on:
       - uptime-kuma
 
 volumes:
   uptime-kuma-data:
+  caddy-data:
